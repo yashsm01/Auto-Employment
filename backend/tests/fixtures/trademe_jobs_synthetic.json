@@ -1,0 +1,79 @@
+{
+  "_note": "SYNTHETIC. Written by hand from the field names in Trade Me's Jobs search API reference. Not a recorded API response.",
+  "TotalCount": 3,
+  "TotalCountTruncated": false,
+  "Page": 1,
+  "PageSize": 3,
+  "List": [
+    {
+      "ListingId": 1001,
+      "Title": "Junior Python Developer",
+      "Category": "5000-5001-",
+      "StartDate": "/Date(1795392000000)/",
+      "EndDate": "/Date(1797984000000)/",
+      "Body": "Short search text",
+      "ExtendedBody": "Build Python and FastAPI services for NZ importers.",
+      "ShortDescription": "Python role",
+      "JobType": "FT",
+      "Company": "Example Freight Tech",
+      "JobLocation": "Auckland City, Auckland",
+      "Region": "Auckland",
+      "District": "Auckland City",
+      "Suburb": "Auckland CBD",
+      "PayBenefits": "$75,000 - $85,000",
+      "IsWorkPermitRequired": false,
+      "JobApplicationDetails": {
+        "OnlineApplicationType": 2,
+        "ContactName": "Sam Sample",
+        "PhoneNumber": "09 000 0000",
+        "Website": "https://example.invalid/apply/1001",
+        "ApplyViaTradeMe": null
+      },
+      "Agency": {
+        "Id": 77,
+        "Name": "Example Recruiters Ltd",
+        "Address": "12 Example St",
+        "Suburb": "Auckland CBD",
+        "City": "Auckland",
+        "PhoneNumber": "09 111 1111",
+        "EMail": "jobs@example.invalid",
+        "Website": "https://recruiters.example.invalid",
+        "IsJobAgency": true
+      }
+    },
+    {
+      "ListingId": 1002,
+      "Title": "Backend Engineer",
+      "StartDate": "2026-11-20T08:30:00Z",
+      "EndDate": null,
+      "Body": "Backend work with PostgreSQL.",
+      "ExtendedBody": null,
+      "JobType": "FT",
+      "Company": null,
+      "JobLocation": null,
+      "Region": "Wellington",
+      "Suburb": "Te Aro",
+      "PayBenefits": "Great culture",
+      "JobsSalaryTransparency": {
+        "HasOptedIn": true,
+        "ApproximatePayRangeDisplay": "$90k - $110k"
+      },
+      "JobApplicationDetails": {
+        "OnlineApplicationType": 1,
+        "ApplyViaTradeMe": "https://example.invalid/trademe-apply/1002"
+      },
+      "Agency": {
+        "Id": 78,
+        "Name": "Sample Payments Ltd",
+        "PhoneNumber": "04 222 2222",
+        "Website": "https://payments.example.invalid",
+        "IsJobAgency": false
+      }
+    },
+    {
+      "ListingId": 1003,
+      "Title": null,
+      "Company": "Listing With No Title"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Personal documents: resumes must never be committed
+*.pdf
+*.doc
+*.docx
+uploads/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local database clusters
+.pgdata/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
