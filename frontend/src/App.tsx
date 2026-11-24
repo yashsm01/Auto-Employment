@@ -1,7 +1,10 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import Layout from "./components/Layout";
+import Employers from "./pages/Employers";
+import JobDetail from "./pages/JobDetail";
 import Pipeline from "./pages/Pipeline";
+import Profile from "./pages/Profile";
 import Shortlist from "./pages/Shortlist";
 
 export default function App() {
@@ -10,6 +13,9 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={<Pipeline />} />
         <Route path="shortlist" element={<Shortlist />} />
+        <Route path="jobs/:id" element={<JobDetail />} />
+        <Route path="profile" element={<Profile />} />
+        <Route path="employers" element={<Employers />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

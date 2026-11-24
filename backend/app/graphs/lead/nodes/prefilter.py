@@ -6,10 +6,9 @@ from app.services import application_service, matching_service
 
 
 def run(state: LeadState, config: RunnableConfig) -> LeadState:
-    candidates, rejected = [], []
-    for job in state["stored"]:
-        keep = matching_service.passes_prefilter(state["resume"], job.draft)
-        (candidates if keep else rejected).append(job)
-
-    application_service.record_rejected(get_deps(config).conn, state["profile_id"], rejected)
-    return {"candidates": candidates}
+    deps = get_deps(config)
+    ranked = matching_service.rank_candidates(
+        state["resume"], state["stored"], deps.embedder, deps.keep_similarity
+    )
+    application_service.record_rejected(deps.conn, state["profile_id"], ranked.rejected)
+    return {"candidates": ranked.candidates, "errors": [*state["errors"], *ranked.errors]}

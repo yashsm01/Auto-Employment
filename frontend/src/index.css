@@ -85,6 +85,23 @@
     background: var(--color-brand-dark);
   }
 
+  .input {
+    min-height: 44px;
+    box-sizing: border-box;
+    border: 1px solid #d5dbe6;
+    border-radius: 10px;
+    background: #fff;
+    padding: 0 12px;
+    color: var(--color-ink);
+    font-size: 14px;
+  }
+
+  .label {
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
   .chip {
     min-height: 40px;
     cursor: pointer;

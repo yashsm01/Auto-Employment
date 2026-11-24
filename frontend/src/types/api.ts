@@ -55,6 +55,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/applications/{application_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Application */
+        get: operations["get_application_applications__application_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/applications/{application_id}/decision": {
         parameters: {
             query?: never;
@@ -72,6 +89,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Profile */
+        get: operations["get_profile_profile_get"];
+        /** Save Profile */
+        put: operations["save_profile_profile_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profile/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Resume */
+        post: operations["upload_resume_profile_resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/employers/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Search Employers */
+        post: operations["search_employers_employers_search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/employers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Employers */
+        get: operations["list_employers_employers_get"];
+        put?: never;
+        /** Save Employer */
+        post: operations["save_employer_employers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/employers/{company_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Employer */
+        delete: operations["remove_employer_employers__company_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs/lead": {
         parameters: {
             query?: never;
@@ -81,8 +185,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Run Lead Search */
-        post: operations["run_lead_search_runs_lead_post"];
+        /** Start Lead Search */
+        post: operations["start_lead_search_runs_lead_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -93,6 +197,45 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ApplicationDetail */
+        ApplicationDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
+            /** Score */
+            score: number | null;
+            /** Similarity */
+            similarity: number | null;
+            /** Title */
+            title: string;
+            /** City */
+            city: string;
+            /** Location */
+            location: string;
+            /** Salary */
+            salary: string;
+            /** Source */
+            source: string;
+            /** Url */
+            url: string | null;
+            /** Description */
+            description: string;
+            /** Matched Skills */
+            matched_skills: string[];
+            /** Missing Skills */
+            missing_skills: string[];
+            /** Reason */
+            reason: string;
+            /** Is Example */
+            is_example: boolean;
+            employer: components["schemas"]["EmployerDetail"];
+            /** Timeline */
+            timeline: components["schemas"]["TimelineEvent"][];
+        };
         /** BoardCard */
         BoardCard: {
             /**
@@ -110,6 +253,8 @@ export interface components {
             score: number | null;
             /** Meta */
             meta: string;
+            /** Source */
+            source: string;
             /** Is Example */
             is_example: boolean;
         };
@@ -123,6 +268,26 @@ export interface components {
             count: number;
             /** Cards */
             cards: components["schemas"]["BoardCard"][];
+        };
+        /**
+         * BoardEntry
+         * @description A company's public careers board.
+         */
+        BoardEntry: {
+            /**
+             * Platform
+             * @enum {string}
+             */
+            platform: "greenhouse" | "lever" | "ashby";
+            /** Token */
+            token: string;
+            /** Company */
+            company: string;
+        };
+        /** Body_upload_resume_profile_resume_post */
+        Body_upload_resume_profile_resume_post: {
+            /** File */
+            file: string;
         };
         /** DecisionRequest */
         DecisionRequest: {
@@ -144,10 +309,77 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** EmployerDetail */
+        EmployerDetail: {
+            /** Name */
+            name: string;
+            /** Website */
+            website: string | null;
+            /** Phone */
+            phone: string | null;
+            /** Email */
+            email: string | null;
+            /** Address */
+            address: string | null;
+            /** About */
+            about: string | null;
+            /** Map Url */
+            map_url: string;
+            /** Facts */
+            facts: components["schemas"]["EmployerFact"][];
+        };
+        /** EmployerFact */
+        EmployerFact: {
+            /** Field */
+            field: string;
+            /** Value */
+            value: string;
+            /** Source */
+            source: string;
+            /** Confidence */
+            confidence: string;
+            /** Source Url */
+            source_url: string | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** NearbyEmployer */
+        NearbyEmployer: {
+            /** Place Id */
+            place_id: string;
+            /** Name */
+            name: string;
+            /** Address */
+            address: string | null;
+            /** Phone */
+            phone: string | null;
+            /** Website */
+            website: string | null;
+            /** Lat */
+            lat: number | null;
+            /** Lng */
+            lng: number | null;
+            /** Map Url */
+            map_url: string;
+            /** Saved */
+            saved: boolean;
+        };
+        /** NearbyResults */
+        NearbyResults: {
+            /** Results */
+            results: components["schemas"]["NearbyEmployer"][];
+            /** Searches Left */
+            searches_left: number;
+        };
+        /** NearbySearch */
+        NearbySearch: {
+            /** Business */
+            business: string;
+            /** Town */
+            town: string;
         };
         /** Pipeline */
         Pipeline: {
@@ -156,6 +388,8 @@ export interface components {
             columns: components["schemas"]["BoardColumn"][];
             /** Last Run At */
             last_run_at: string | null;
+            /** Last Sources */
+            last_sources: components["schemas"]["SourceReport"][];
         };
         /** PipelineStats */
         PipelineStats: {
@@ -167,6 +401,66 @@ export interface components {
             ready_to_send: number;
             /** Replies This Week */
             replies_this_week: number;
+        };
+        /** ProfileUpdate */
+        ProfileUpdate: {
+            /** Titles */
+            titles: string[];
+            /** Skills */
+            skills: components["schemas"]["SkillEntry"][];
+            /** Tools */
+            tools: string[];
+            /** Search Queries */
+            search_queries: string[];
+            /** Regions */
+            regions: string[];
+            /** Work Rights */
+            work_rights: ("citizen" | "resident" | "open_visa" | "needs_sponsorship") | null;
+            /** Salary Min */
+            salary_min: number | null;
+            /** Avoid Keywords */
+            avoid_keywords: string[];
+            /** Shortlist Threshold */
+            shortlist_threshold: number;
+            /** Boards */
+            boards: components["schemas"]["BoardEntry"][];
+        };
+        /** ProfileView */
+        ProfileView: {
+            /** Titles */
+            titles: string[];
+            /** Skills */
+            skills: components["schemas"]["SkillEntry"][];
+            /** Tools */
+            tools: string[];
+            /** Search Queries */
+            search_queries: string[];
+            /** Regions */
+            regions: string[];
+            /** Work Rights */
+            work_rights: ("citizen" | "resident" | "open_visa" | "needs_sponsorship") | null;
+            /** Salary Min */
+            salary_min: number | null;
+            /** Avoid Keywords */
+            avoid_keywords: string[];
+            /** Shortlist Threshold */
+            shortlist_threshold: number;
+            /** Boards */
+            boards: components["schemas"]["BoardEntry"][];
+            /** Is Example */
+            is_example: boolean;
+            /** Filename */
+            filename: string | null;
+            /** Industries */
+            industries: string[];
+            /** Seniority */
+            seniority: string | null;
+            /** Connections */
+            connections: {
+                [key: string]: boolean;
+            };
+            /** Warning */
+            warning?: string | null;
         };
         /** RunResponse */
         RunResponse: {
@@ -183,6 +477,48 @@ export interface components {
             };
             /** Error */
             error: string | null;
+        };
+        /** SaveEmployer */
+        SaveEmployer: {
+            /** Place Id */
+            place_id: string;
+            /** Name */
+            name: string;
+            /** Address */
+            address?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** Website */
+            website?: string | null;
+            /** Lat */
+            lat?: number | null;
+            /** Lng */
+            lng?: number | null;
+        };
+        /** SavedEmployer */
+        SavedEmployer: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Address */
+            address: string | null;
+            /** Phone */
+            phone: string | null;
+            /** Website */
+            website: string | null;
+            /** Map Url */
+            map_url: string;
+            /** Last Checked */
+            last_checked: string | null;
+        };
+        /** SavedEmployers */
+        SavedEmployers: {
+            /** Items */
+            items: components["schemas"]["SavedEmployer"][];
         };
         /** Shortlist */
         Shortlist: {
@@ -218,6 +554,36 @@ export interface components {
             url: string | null;
             /** Is Example */
             is_example: boolean;
+        };
+        /** SkillEntry */
+        SkillEntry: {
+            /** Name */
+            name: string;
+            /** Years */
+            years?: number | null;
+            /** Level */
+            level?: string | null;
+        };
+        /** SourceReport */
+        SourceReport: {
+            /** Source */
+            source: string;
+            /** Jobs */
+            jobs: number;
+            /** Status */
+            status: string;
+            /** Detail */
+            detail?: string | null;
+        };
+        /** TimelineEvent */
+        TimelineEvent: {
+            /** Type */
+            type: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -303,6 +669,37 @@ export interface operations {
             };
         };
     };
+    get_application_applications__application_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     decide_applications__application_id__decision_post: {
         parameters: {
             query?: never;
@@ -338,7 +735,212 @@ export interface operations {
             };
         };
     };
-    run_lead_search_runs_lead_post: {
+    get_profile_profile_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileView"];
+                };
+            };
+        };
+    };
+    save_profile_profile_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_resume_profile_resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_resume_profile_resume_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_employers_employers_search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NearbySearch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NearbyResults"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_employers_employers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedEmployers"];
+                };
+            };
+        };
+    };
+    save_employer_employers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveEmployer"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedEmployer"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_employer_employers__company_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                company_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_lead_search_runs_lead_post: {
         parameters: {
             query?: never;
             header?: never;

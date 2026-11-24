@@ -5,12 +5,14 @@ from functools import lru_cache
 from typing import Annotated
 from uuid import UUID
 
+import httpx
 import psycopg
 from fastapi import Depends
 
 from app.core.config import Settings
-from app.core.errors import AppError, NotFound
+from app.core.errors import AppError, BadRequest, NotFound
 from app.db.client import connect
+from app.providers.company.places import PlacesClient
 from app.repositories import profiles_repo
 
 
@@ -41,3 +43,14 @@ def get_profile_id(conn: ConnDep) -> UUID:
 
 
 ProfileIdDep = Annotated[UUID, Depends(get_profile_id)]
+
+
+def get_places(settings: SettingsDep) -> Iterator[PlacesClient]:
+    key = settings.google_maps_api_key.get_secret_value()
+    if not key:
+        raise BadRequest(
+            "Google Maps is not connected. Add GOOGLE_MAPS_API_KEY to backend/.env "
+            "and restart the backend."
+        )
+    with httpx.Client(timeout=20) as client:
+        yield PlacesClient(client, key)

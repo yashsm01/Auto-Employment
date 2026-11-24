@@ -38,3 +38,8 @@ Integration tests start their own throwaway Postgres. They need `initdb` and `pg
 - Never send a real message to an employer without the user's approval.
 - Never add a fact to a resume that is not in the base resume.
 - Keep row level security on for every new table.
+- Build AI clients only from `Settings`. Never call a bare `Anthropic()`, because it can pick up another credential.
+- Tests must never call a paid API. Inject a fake client.
+- Wrap job posts, websites and emails in data tags, and validate model output against known facts.
+- Never fetch SEEK, LinkedIn or Indeed pages, including links found in alert emails.
+- A failing external service must be reported in `output.errors` and must not stop a search run.

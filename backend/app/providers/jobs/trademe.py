@@ -107,6 +107,7 @@ def parse_jobs(payload: dict[str, Any]) -> list[JobDraft]:
 
 class TradeMeSource:
     name = "trademe"
+    label = "Trade Me"
 
     def __init__(
         self,

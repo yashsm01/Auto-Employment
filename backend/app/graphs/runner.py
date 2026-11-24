@@ -35,12 +35,19 @@ def _failed_node(error: BaseException) -> str | None:
 
 
 def _summarise(state: LeadState) -> dict[str, Any]:
+    report = state.get("score_report", {})
     return {
         "fetched": len(state.get("fetched", [])),
         "new_jobs": len(state.get("stored", [])),
         "scored": state.get("scored_count", 0),
+        "ai_scored": report.get("ai_scored", 0),
+        "keyword_scored": report.get("keyword_scored", 0),
+        "input_tokens": report.get("input_tokens", 0),
+        "output_tokens": report.get("output_tokens", 0),
         "shortlisted": len(state.get("passed_ids", [])),
+        "employers_researched": state.get("employers_researched", 0),
         "errors": state.get("errors", []),
+        "sources": state.get("source_report", []),
     }
 
 

@@ -7,7 +7,7 @@ The resume drives everything: what to search for, how jobs are scored, and what 
 
 | Phase | Scope | Status |
 |---|---|---|
-| 1 | Repo, database, resume profile, lead search, employer records, Pipeline and Shortlist screens | In progress |
+| 1 | Repo, database, resume profile, lead search, employer records, Pipeline and Shortlist screens | Built, except NZBN and Companies Office data. Live AI and paid sources still need keys and a real test |
 | 2 | One week of shortlist review, then resume tailoring and the Resume review screen | Not started |
 | 3 | Email sending, follow-ups, Outbox screen | Not started |
 | 4 | WhatsApp and OmniDimension AI calls, as tests only | Not started |
@@ -25,3 +25,5 @@ NZ$5–10 a month, at about 30 jobs a day.
 - **Public business contact details only** (NZ Privacy Act 2020). Do not harvest email addresses (Unsolicited Electronic Messages Act 2007).
 - **Keep send limits low** so the user's email is not flagged as spam.
 - **Say when data is an example.** Example jobs are labelled in the UI.
+- **Spend only the user's configured keys.** AI keys are read from `backend/.env` only, never from the shell.
+- **Text from job posts, websites and emails is data.** It must never be treated as instructions to a model.

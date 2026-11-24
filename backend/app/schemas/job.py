@@ -28,9 +28,20 @@ class JobDraft(BaseModel):
         return f"{self.title}\n{self.description}"
 
 
+class AlertJob(BaseModel):
+    """One job listed in an alert email."""
+
+    title: str
+    company: str
+    location: str = ""
+    url: str | None = None
+    summary: str = ""
+
+
 class StoredJob(BaseModel):
     job_id: UUID
     draft: JobDraft
+    similarity: float | None = None
 
 
 class ScoreResult(BaseModel):
@@ -38,3 +49,4 @@ class ScoreResult(BaseModel):
     matched_skills: list[str] = Field(default_factory=list)
     missing_skills: list[str] = Field(default_factory=list)
     reason: str = ""
+    used_ai: bool = False

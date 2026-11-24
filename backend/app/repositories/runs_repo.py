@@ -55,3 +55,17 @@ def last_finished_at(conn: psycopg.Connection, graph: str) -> datetime | None:
         (graph,),
     ).fetchone()
     return row["at"]
+
+
+def last_sources(conn: psycopg.Connection, graph: str) -> list[dict[str, Any]]:
+    row = conn.execute(
+        """
+        select output -> 'sources' as sources
+        from graph_runs
+        where graph = %s and status = 'ok'
+        order by finished_at desc
+        limit 1
+        """,
+        (graph,),
+    ).fetchone()
+    return (row["sources"] or []) if row else []

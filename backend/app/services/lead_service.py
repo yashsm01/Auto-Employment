@@ -3,18 +3,24 @@
 import hashlib
 from collections.abc import Iterable, Sequence
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 import psycopg
 
 from app.core.errors import NotFound, ProviderError
 from app.core.normalize import contains_term
+from app.core.nz_places import fold_place, is_nz_location
 from app.providers.jobs.base import JobSource
 from app.repositories import jobs_repo, profiles_repo
 from app.schemas.job import JobDraft
 from app.schemas.resume import ResumeProfile, SearchPreferences
 
 DEFAULT_QUERY_LIMIT = 10
+NO_SOURCES_MESSAGE = (
+    "No job sources are connected yet. Connect Google Maps, Gmail alerts or Trade Me, "
+    "or add a company careers board on your profile."
+)
 
 
 def load_context(
@@ -28,19 +34,35 @@ def load_context(
 
 def fetch_all(
     sources: Sequence[JobSource], queries: Iterable[str], regions: list[str]
-) -> tuple[list[JobDraft], list[str]]:
+) -> tuple[list[JobDraft], list[str], list[dict[str, Any]]]:
     """Search every source. A failing source is reported and the others continue."""
+    if not sources:
+        return [], [NO_SOURCES_MESSAGE], []
     keywords = list(dict.fromkeys(keywords_for(query, regions) for query in queries))
     jobs: list[JobDraft] = []
     errors: list[str] = []
+    report: list[dict[str, Any]] = []
     for source in sources:
+        found: set[tuple[str, str]] = set()
+        problem: str | None = None
         for words in keywords:
             try:
-                jobs.extend(source.search(words))
+                results = source.search(words)
             except ProviderError as error:
-                errors.append(str(error))
+                problem = str(error)
+                errors.append(problem)
                 break
-    return jobs, errors
+            jobs.extend(results)
+            found.update((job.source, job.external_id) for job in results)
+        report.append(
+            {
+                "source": getattr(source, "label", source.name),
+                "jobs": len(found),
+                "status": "error" if problem else "ok",
+                "detail": problem,
+            }
+        )
+    return jobs, errors, report
 
 
 def clean(
@@ -62,14 +84,25 @@ def build_queries(
     if resume.search_queries:
         return resume.search_queries[:limit]
 
-    regions = prefs.regions or ["New Zealand"]
     terms = [*resume.titles, *(skill.name for skill in resume.skills)]
+    if not prefs.regions:  # all of New Zealand
+        return list({term.casefold(): term for term in reversed(terms)}.values())[::-1][:limit]
+
     queries: dict[str, str] = {}
     for term in terms:
-        for region in regions:
+        for region in prefs.regions:
             query = f"{term} {region}"
             queries.setdefault(query.casefold(), query)
-    return list(queries.values())[:limit]
+    if len(queries) <= limit:
+        return list(queries.values())
+
+    # Location is filtered after fetching, so many towns must not crowd out a job title.
+    chosen = {f"{title} {prefs.regions[0]}".casefold() for title in resume.titles[:limit]}
+    for key in queries:
+        if len(chosen) >= limit:
+            break
+        chosen.add(key)
+    return [query for key, query in queries.items() if key in chosen]
 
 
 def keywords_for(query: str, regions: Iterable[str]) -> str:
@@ -107,14 +140,19 @@ def dedupe_jobs(jobs: Iterable[JobDraft], seen: Iterable[str] = ()) -> list[JobD
 
 
 def _in_regions(job: JobDraft, regions: list[str]) -> bool:
-    if not regions:
+    # Global company boards list jobs in other countries, some in same-named places.
+    if job.source == "ats" and not is_nz_location(job.location, regions):
+        return False
+    if not regions:  # all of New Zealand
         return True
-    place = f"{job.location} {job.region}"
+
+    place = fold_place(f"{job.location} {job.region}")
     for region in regions:
-        if region.casefold().startswith("remote"):
-            if contains_term(f"{place} {job.title}", "remote"):
+        wanted = fold_place(region)
+        if wanted.startswith("remote"):
+            if contains_term(f"{place} {fold_place(job.title)}", "remote"):
                 return True
-        elif contains_term(place, region):
+        elif contains_term(place, wanted):
             return True
     return False
 

@@ -4,6 +4,7 @@ from .nodes import (
     build_queries,
     dedupe,
     enrich,
+    enrich_shortlisted,
     fetch_jobs,
     load_resume_profile,
     prefilter,
@@ -24,6 +25,7 @@ def build():
     g.add_node("prefilter", prefilter.run)
     g.add_node("score", score.run)
     g.add_node("shortlist", shortlist.run)
+    g.add_node("enrich_shortlisted", enrich_shortlisted.run)
 
     g.set_entry_point("load_resume_profile")
     g.add_edge("load_resume_profile", "build_queries")
@@ -33,5 +35,6 @@ def build():
     g.add_edge("enrich", "prefilter")
     g.add_edge("prefilter", "score")
     g.add_conditional_edges("score", after_score, {"shortlist": "shortlist", "end": END})
-    g.add_edge("shortlist", END)
+    g.add_edge("shortlist", "enrich_shortlisted")
+    g.add_edge("enrich_shortlisted", END)
     return g.compile()

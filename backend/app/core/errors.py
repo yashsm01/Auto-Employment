@@ -9,6 +9,10 @@ class NotFound(AppError):
     """A requested record does not exist."""
 
 
+class BadRequest(AppError):
+    """The request cannot be used, for example an unreadable resume file."""
+
+
 class Conflict(AppError):
     """The request is valid but cannot be applied to the current state."""
 

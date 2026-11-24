@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 import type { DecisionAction } from "../api/applications";
 import type { ShortlistItem } from "../api/pipeline";
@@ -55,6 +56,9 @@ function JobCard({
         <span className="text-[13px] text-muted">{item.reason}</span>
       </div>
       <div className="flex flex-wrap gap-2">
+        <Link className="btn" to={`/jobs/${item.id}`} aria-label={`Open ${item.title}`}>
+          Open
+        </Link>
         {item.url && (
           <a className="btn" href={item.url} target="_blank" rel="noopener noreferrer">
             View post

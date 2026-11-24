@@ -14,11 +14,18 @@ function pipeline(isExample = false, shortlisted = 1): PipelineData {
     city: "Auckland",
     score: 87,
     meta: "Matched: Python",
+    source: "Employer website via Google Maps",
     is_example: isExample,
   }));
   return {
     stats: { found_today: 34, shortlisted, ready_to_send: 2, replies_this_week: 1 },
     last_run_at: "2026-11-24T07:00:00Z",
+    last_sources: [
+      { source: "Google Maps", jobs: 0, status: "ok", detail: "Found 12 employers to check" },
+      { source: "Employer websites via Google Maps", jobs: 3, status: "ok", detail: null },
+      { source: "Gmail job alerts", jobs: 0, status: "error", detail: "gmail: HTTP 500" },
+      { source: "Trade Me", jobs: 0, status: "not_connected", detail: null },
+    ],
     columns: [
       { key: "shortlisted", name: "Shortlisted", count: shortlisted, cards },
       { key: "resume_ready", name: "Resume ready", count: 0, cards: [] },
@@ -120,6 +127,52 @@ describe("Pipeline", () => {
     await user.click(screen.getByRole("button", { name: "Run search now" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("already running");
+  });
+
+  it("shows where each job came from", async () => {
+    mockApi({ "GET /pipeline": () => ({ body: pipeline() }) });
+    renderPage(<Pipeline />);
+
+    const column = await screen.findByRole("region", { name: "Shortlisted" });
+
+    expect(within(column).getByText("Employer website via Google Maps")).toBeInTheDocument();
+  });
+
+  it("lists every place the last search looked", async () => {
+    mockApi({ "GET /pipeline": () => ({ body: pipeline() }) });
+    renderPage(<Pipeline />);
+
+    const list = await screen.findByRole("region", { name: "Where the last search looked" });
+    const row = (name: string) => within(list).getByText(name).parentElement!;
+
+    expect(row("Google Maps")).toHaveTextContent("Found 12 employers to check");
+    expect(row("Employer websites via Google Maps")).toHaveTextContent("3 jobs");
+    expect(row("Gmail job alerts")).toHaveTextContent("gmail: HTTP 500");
+    expect(row("Trade Me")).toHaveTextContent("Not connected");
+  });
+
+  it("explains how to connect a source instead of reporting a failure", async () => {
+    mockApi({
+      "GET /pipeline": () => ({ body: pipeline() }),
+      "POST /runs/lead": () =>
+        runReply({
+          new_jobs: 0,
+          shortlisted: 0,
+          errors: ["No job sources are connected yet. Connect Google Maps."],
+        }),
+    });
+    const user = userEvent.setup();
+    renderPage(<Pipeline />);
+    await screen.findByText("Python Developer 1");
+
+    await user.click(screen.getByRole("button", { name: "Run search now" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("No job sources are connected");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("link", { name: "Find nearby employers" })).toHaveAttribute(
+      "href",
+      "/employers",
+    );
   });
 
   it("labels example data", async () => {

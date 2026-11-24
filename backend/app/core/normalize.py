@@ -1,7 +1,10 @@
 """Text helpers shared by providers, chains and services. No business rules."""
 
+import html
 import re
+from datetime import UTC, datetime
 from functools import lru_cache
+from typing import Any
 
 _HOURLY = re.compile(r"per\s+hour|an\s+hour|/\s*h(?:ou)?r\b|\bp/?h\b|hourly", re.IGNORECASE)
 _RANGE_IN_K = re.compile(
@@ -27,6 +30,36 @@ def parse_annual_salary(text: str | None) -> tuple[int | None, int | None]:
     if not amounts:
         return None, None
     return min(amounts), max(amounts)
+
+
+_HIDDEN_HTML = re.compile(r"<(script|style)\b.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
+_BLOCK_TAG = re.compile(r"</?(?:p|div|li|ul|ol|br|h[1-6]|tr|table|section)\b[^>]*>", re.IGNORECASE)
+_ANY_TAG = re.compile(r"<[^>]+>")
+
+
+def strip_html(value: str | None) -> str:
+    """Turn HTML, including entity-escaped HTML, into plain text."""
+    if not value:
+        return ""
+    text = _HIDDEN_HTML.sub(" ", html.unescape(value))
+    text = _ANY_TAG.sub("", _BLOCK_TAG.sub("\n", text))
+    lines = (" ".join(line.split()) for line in html.unescape(text).splitlines())
+    return "\n".join(line for line in lines if line)
+
+
+def parse_timestamp(value: Any) -> datetime | None:
+    """Read an ISO date or a millisecond timestamp. Unreadable values return None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return datetime.fromtimestamp(value / 1000, tz=UTC)
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 @lru_cache(maxsize=512)

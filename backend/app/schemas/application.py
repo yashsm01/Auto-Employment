@@ -12,6 +12,7 @@ class BoardCard(BaseModel):
     city: str
     score: int | None
     meta: str
+    source: str
     is_example: bool
 
 
@@ -29,10 +30,18 @@ class PipelineStats(BaseModel):
     replies_this_week: int
 
 
+class SourceReport(BaseModel):
+    source: str
+    jobs: int
+    status: str
+    detail: str | None = None
+
+
 class Pipeline(BaseModel):
     stats: PipelineStats
     columns: list[BoardColumn]
     last_run_at: datetime | None
+    last_sources: list[SourceReport]
 
 
 class ShortlistItem(BaseModel):
@@ -52,6 +61,50 @@ class ShortlistItem(BaseModel):
 
 class Shortlist(BaseModel):
     items: list[ShortlistItem]
+
+
+class EmployerFact(BaseModel):
+    field: str
+    value: str
+    source: str
+    confidence: str
+    source_url: str | None
+
+
+class EmployerDetail(BaseModel):
+    name: str
+    website: str | None
+    phone: str | None
+    email: str | None
+    address: str | None
+    about: str | None
+    map_url: str
+    facts: list[EmployerFact]
+
+
+class TimelineEvent(BaseModel):
+    type: str
+    created_at: datetime
+
+
+class ApplicationDetail(BaseModel):
+    id: UUID
+    status: str
+    score: int | None
+    similarity: float | None
+    title: str
+    city: str
+    location: str
+    salary: str
+    source: str
+    url: str | None
+    description: str
+    matched_skills: list[str]
+    missing_skills: list[str]
+    reason: str
+    is_example: bool
+    employer: EmployerDetail
+    timeline: list[TimelineEvent]
 
 
 class DecisionRequest(BaseModel):

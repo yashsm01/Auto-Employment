@@ -7,7 +7,8 @@ from app.schemas.job import ScoreResult
 
 _CARD_COLUMNS = """
     a.id, a.status, a.score, a.matched_skills, a.missing_skills, a.score_reason,
-    j.title, j.location, j.region, j.salary_min, j.salary_max, j.source, j.url,
+    j.title, j.location, j.region, j.salary_min, j.salary_max, j.source, j.external_id,
+    j.url,
     coalesce(c.name, 'Unknown employer') as company
 """
 _CARD_JOIN = """
@@ -23,16 +24,18 @@ def record_score(
     job_id: UUID,
     result: ScoreResult,
     status: str,
+    similarity: float | None = None,
 ) -> UUID:
     row = conn.execute(
         """
         insert into applications (
-            profile_id, job_id, score, matched_skills, missing_skills, score_reason, status
-        ) values (%s, %s, %s, %s, %s, %s, %s)
+            profile_id, job_id, score, matched_skills, missing_skills, score_reason, status,
+            similarity
+        ) values (%s, %s, %s, %s, %s, %s, %s, %s)
         returning id
         """,
         (profile_id, job_id, result.score, result.matched_skills, result.missing_skills,
-         result.reason, status),
+         result.reason, status, similarity),
     ).fetchone()
     return row["id"]
 
@@ -109,3 +112,40 @@ def add_feedback(
         "insert into feedback (application_id, action, reason) values (%s, %s, %s)",
         (application_id, action, reason),
     )
+
+
+def recent_decisions(
+    conn: psycopg.Connection, profile_id: UUID | str, limit: int = 100
+) -> list[dict[str, Any]]:
+    return conn.execute(
+        """
+        select f.action, j.title, coalesce(c.name, 'Unknown employer') as company
+        from feedback f
+        join applications a on a.id = f.application_id
+        join jobs j on j.id = a.job_id
+        left join companies c on c.id = j.company_id
+        where a.profile_id = %s
+        order by f.created_at desc
+        limit %s
+        """,
+        (profile_id, limit),
+    ).fetchall()
+
+
+def detail(
+    conn: psycopg.Connection, profile_id: UUID, application_id: UUID
+) -> dict[str, Any] | None:
+    return conn.execute(
+        """
+        select a.id, a.status, a.score, a.similarity, a.matched_skills, a.missing_skills,
+               a.score_reason, j.title, j.location, j.region, j.salary_min, j.salary_max,
+               j.source, j.external_id, j.url, j.description, c.id as company_id,
+               coalesce(c.name, 'Unknown employer') as company, c.website, c.phone, c.email,
+               c.address, c.about
+        from applications a
+        join jobs j on j.id = a.job_id
+        left join companies c on c.id = j.company_id
+        where a.id = %s and a.profile_id = %s
+        """,
+        (application_id, profile_id),
+    ).fetchone()

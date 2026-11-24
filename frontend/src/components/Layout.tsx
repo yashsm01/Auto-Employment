@@ -2,7 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 
 import { useShortlist } from "../hooks/useShortlist";
 
-const LATER = ["Resume review", "Outbox and follow-ups", "My resume profile", "Settings"];
+const LATER = ["Resume review", "Outbox and follow-ups", "Settings"];
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   `flex min-h-11 flex-1 items-center justify-between gap-2 rounded-lg px-3 text-sm font-medium no-underline md:flex-none ${
@@ -33,6 +33,12 @@ export default function Layout() {
           {count !== undefined && (
             <span className="rounded-full bg-navy-light px-2 text-xs text-white">{count}</span>
           )}
+        </NavLink>
+        <NavLink to="/employers" className={linkClass}>
+          Nearby employers
+        </NavLink>
+        <NavLink to="/profile" className={linkClass}>
+          My resume profile
         </NavLink>
         {LATER.map((name) => (
           <span

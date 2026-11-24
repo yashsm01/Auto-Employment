@@ -24,8 +24,8 @@ flowchart TB
 |---|---|
 | `api/` | Validate input, call a service, return a schema |
 | `graphs/` | Pipeline steps. `graph.py` holds wiring only |
-| `services/` | Business rules |
-| `chains/` | Model calls and scoring methods |
+| `services/` | Business rules. May call a chain that is passed in, and choose which sources to use |
+| `chains/` | Model calls and scoring methods, each with a free fallback where possible |
 | `repositories/` | Database reads and writes only |
 | `providers/` | External APIs only |
 | `schemas/`, `core/` | Shared shapes and plumbing, no business logic |
@@ -37,6 +37,7 @@ flowchart TB
 - Branch decisions live in `routes.py`.
 - Nodes get the database and sources from `config["configurable"]["deps"]`.
 - `graphs/runner.py` is the only way to run a graph.
+- `workers/lead_job.py` builds a run's dependencies for both the Run button and the daily schedule.
 
 ## Debugging a failed search
 
@@ -44,3 +45,4 @@ flowchart TB
 2. `failed_node` names the file to open in `graphs/lead/nodes/`.
 3. A failed run keeps no partial data, so it is safe to run again.
 4. Source failures such as `trademe: HTTP 401` appear in `output.errors` and do not fail the run.
+5. `output.ai_scored` and `output.keyword_scored` show whether AI scoring ran or fell back.

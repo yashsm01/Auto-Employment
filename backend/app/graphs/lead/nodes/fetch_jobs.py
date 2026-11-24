@@ -6,7 +6,13 @@ from app.services import lead_service
 
 
 def run(state: LeadState, config: RunnableConfig) -> LeadState:
-    jobs, errors = lead_service.fetch_all(
-        get_deps(config).sources, state["queries"], state["prefs"].regions
+    deps = get_deps(config)
+    jobs, errors, report = lead_service.fetch_all(
+        deps.sources, state["queries"], state["prefs"].regions
     )
-    return {"fetched": jobs, "errors": [*state["errors"], *errors]}
+    note_errors = [note["detail"] for note in deps.source_notes if note["status"] == "error"]
+    return {
+        "fetched": jobs,
+        "errors": [*state["errors"], *note_errors, *errors],
+        "source_report": [*deps.source_notes, *report],
+    }

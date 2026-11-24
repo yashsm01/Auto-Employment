@@ -8,6 +8,12 @@ type Reply = { status?: number; body: unknown };
 type Handler = (body: unknown) => Reply;
 export type Call = { method: string; path: string; body: unknown };
 
+function readBody(init?: RequestInit): unknown {
+  if (!init?.body) return undefined;
+  if (init.body instanceof FormData) return init.body;
+  return JSON.parse(String(init.body));
+}
+
 /** Replaces fetch with routes keyed like "GET /shortlist". Unknown routes fail the request. */
 export function mockApi(routes: Record<string, Handler>): Call[] {
   const calls: Call[] = [];
@@ -16,7 +22,7 @@ export function mockApi(routes: Record<string, Handler>): Call[] {
     vi.fn(async (url: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";
       const path = new URL(url).pathname;
-      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      const body = readBody(init);
       calls.push({ method, path, body });
       const handler = routes[`${method} ${path}`];
       if (!handler) {
@@ -31,11 +37,12 @@ export function mockApi(routes: Record<string, Handler>): Call[] {
   return calls;
 }
 
-export function renderPage(page: ReactElement) {
+export function renderPage(page: ReactElement, route = "/") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>{page}</MemoryRouter>
+      <MemoryRouter initialEntries={[route]}>{page}</MemoryRouter>
     </QueryClientProvider>,
   );
+  return { ...view, client };
 }

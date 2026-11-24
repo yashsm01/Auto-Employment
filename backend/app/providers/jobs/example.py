@@ -56,6 +56,7 @@ EXAMPLE_JOBS = (
 
 class ExampleJobSource:
     name = "example"
+    label = "Example jobs"
 
     def search(self, keywords: str) -> list[JobDraft]:
         return list(EXAMPLE_JOBS)

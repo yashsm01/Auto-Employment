@@ -1,23 +1,40 @@
-import { ExampleTag, ErrorNotice, SuccessNotice } from "../components/Notice";
-import type { RunResponse } from "../api/runs";
+import { Link } from "react-router-dom";
+
+import type { Pipeline as PipelineData } from "../api/pipeline";
+import { describeRun } from "../api/runs";
+import { ErrorNotice, ExampleTag, InfoNotice, SuccessNotice } from "../components/Notice";
 import { usePipeline, useRunSearch } from "../hooks/usePipeline";
 
 const lastRunFormat = new Intl.DateTimeFormat("en-NZ", { dateStyle: "medium", timeStyle: "short" });
 
-function runSummary(result: RunResponse): string {
-  const { new_jobs: newJobs = 0, shortlisted = 0 } = result.output as {
-    new_jobs?: number;
-    shortlisted?: number;
-  };
-  return `Search finished: ${newJobs} new jobs, ${shortlisted} shortlisted.`;
+type SourceRow = PipelineData["last_sources"][number];
+
+function sourceResult(row: SourceRow): { text: string; className: string } {
+  if (row.status === "not_connected") return { text: "Not connected", className: "text-muted" };
+  if (row.status === "error") return { text: row.detail ?? "Failed", className: "text-bad" };
+  const jobs = `${row.jobs} ${row.jobs === 1 ? "job" : "jobs"}`;
+  const text = row.detail ? (row.jobs ? `${jobs} · ${row.detail}` : row.detail) : jobs;
+  return { text, className: "text-ok" };
 }
 
-function runProblem(result: RunResponse | undefined, failure: Error | null): string | null {
-  if (failure) return failure.message;
-  if (!result) return null;
-  if (result.status === "error") return result.error ?? "The search failed.";
-  const errors = (result.output.errors ?? []) as string[];
-  return errors.length ? `Some sources failed: ${errors.join("; ")}` : null;
+function SourcesCard({ rows }: { rows: SourceRow[] }) {
+  return (
+    <section aria-label="Where the last search looked" className="card flex flex-col gap-2">
+      <h2 className="m-0 font-display text-lg font-bold">Where the last search looked</h2>
+      {rows.map((row) => {
+        const result = sourceResult(row);
+        return (
+          <div
+            key={row.source}
+            className="flex flex-wrap justify-between gap-x-4 gap-y-1 border-t border-line pt-2 text-sm"
+          >
+            <span className="font-semibold">{row.source}</span>
+            <span className={result.className}>{result.text}</span>
+          </div>
+        );
+      })}
+    </section>
+  );
 }
 
 export default function Pipeline() {
@@ -34,8 +51,8 @@ export default function Pipeline() {
     { label: "Replies", value: data.stats.replies_this_week, note: "this week" },
   ];
   const hasExamples = data.columns.some((column) => column.cards.some((card) => card.is_example));
-  const problem = runProblem(run.data, run.error);
-  const finished = run.data?.status === "ok" ? run.data : undefined;
+  const outcome = run.data ? describeRun(run.data) : {};
+  const problem = run.error?.message ?? outcome.problem;
 
   return (
     <>
@@ -62,7 +79,17 @@ export default function Pipeline() {
         </button>
       </header>
 
-      {finished && <SuccessNotice message={runSummary(finished)} />}
+      {outcome.summary && <SuccessNotice message={outcome.summary} />}
+      {outcome.info && (
+        <InfoNotice message={outcome.info}>
+          <Link to="/employers" className="text-brand-dark">
+            Find nearby employers
+          </Link>
+          <Link to="/profile" className="text-brand-dark">
+            Add a careers board
+          </Link>
+        </InfoNotice>
+      )}
       {problem && <ErrorNotice message={problem} />}
 
       <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3.5">
@@ -74,6 +101,8 @@ export default function Pipeline() {
           </div>
         ))}
       </div>
+
+      {data.last_sources.length > 0 && <SourcesCard rows={data.last_sources} />}
 
       <h2 className="m-0 font-display text-lg font-bold">Board</h2>
       <div className="overflow-x-auto pb-1.5">
@@ -94,7 +123,12 @@ export default function Pipeline() {
                   className="flex flex-col gap-1.5 rounded-[10px] border border-line bg-white p-3"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <b className="text-sm">{card.title}</b>
+                    <Link
+                      to={`/jobs/${card.id}`}
+                      className="text-sm font-bold text-ink hover:text-brand-dark"
+                    >
+                      {card.title}
+                    </Link>
                     {card.score !== null && (
                       <span className="rounded-md bg-brand-soft px-1.5 py-0.5 text-xs font-bold text-brand-dark">
                         {card.score}
@@ -105,6 +139,7 @@ export default function Pipeline() {
                     {card.company} · {card.city}
                   </span>
                   <span className="text-xs text-muted">{card.meta}</span>
+                  <span className="text-[11px] font-semibold text-slate">{card.source}</span>
                 </article>
               ))}
             </section>
