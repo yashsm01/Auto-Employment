@@ -114,3 +114,11 @@ def test_fallback_recovers_after_one_failure():
     chain.run(make_resume(), make_job())
 
     assert chain.run(make_resume(), make_job()).used_ai is True
+
+
+def test_keyword_chain_counts_a_skill_once_when_it_is_also_a_tool():
+    resume = make_resume(tools=["python", "Docker"])
+
+    result = KeywordScoreChain().run(resume, make_job(description="Python, Docker and SQL."))
+
+    assert result.matched_skills == ["Python", "SQL", "Docker"]

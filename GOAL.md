@@ -8,7 +8,7 @@ The resume drives everything: what to search for, how jobs are scored, and what 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Repo, database, resume profile, lead search, employer records, Pipeline and Shortlist screens | Built, except NZBN and Companies Office data. Live AI and paid sources still need keys and a real test |
-| 2 | One week of shortlist review, then resume tailoring and the Resume review screen | Not started |
+| 2 | One week of shortlist review, then resume tailoring and the Resume review screen | Built and tested with the live AI on an invented resume. Not yet run on your own shortlist |
 | 3 | Email sending, follow-ups, Outbox screen | Not started |
 | 4 | WhatsApp and OmniDimension AI calls, as tests only | Not started |
 | 5 | Auto mode, switched on by the user | Not started |

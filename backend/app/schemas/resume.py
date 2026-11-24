@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.tailoring import ContactDetails
+
 WorkRights = Literal["citizen", "resident", "open_visa", "needs_sponsorship"]
 
 
@@ -22,7 +24,11 @@ class ResumeProfile(BaseModel):
     search_queries: list[str] = Field(default_factory=list)
 
     def all_skill_names(self) -> list[str]:
-        return [skill.name for skill in self.skills] + self.tools
+        """Skills then tools, each name once, ignoring case."""
+        names: dict[str, str] = {}
+        for name in [skill.name for skill in self.skills] + self.tools:
+            names.setdefault(name.casefold(), name)
+        return list(names.values())
 
 
 class SearchPreferences(BaseModel):
@@ -52,6 +58,7 @@ class ProfileUpdate(BaseModel):
     avoid_keywords: list[str]
     shortlist_threshold: int = Field(ge=0, le=100)
     boards: list[BoardEntry] = Field(max_length=50)
+    contact: ContactDetails | None = None
 
 
 class ProfileView(ProfileUpdate):
@@ -60,4 +67,5 @@ class ProfileView(ProfileUpdate):
     industries: list[str]
     seniority: str | None
     connections: dict[str, bool]
+    contact: ContactDetails = ContactDetails()
     warning: str | None = None

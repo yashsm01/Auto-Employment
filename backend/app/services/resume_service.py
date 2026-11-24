@@ -9,7 +9,7 @@ import psycopg
 
 from app.chains.resume_profile_chain import OfflineResumeChain, ResumeChain
 from app.core.config import Settings
-from app.core.documents import extract_resume_text, file_suffix
+from app.core.documents import extract_contact_details, extract_resume_text, file_suffix
 from app.core.errors import BadRequest, NotFound, ProviderError
 from app.repositories import profiles_repo
 from app.schemas.resume import ProfileUpdate, ProfileView, ResumeProfile
@@ -68,6 +68,9 @@ def get_view(
     if row is None:
         raise NotFound("No resume profile found.")
     content = row["content"]
+    contact = content.get("contact") or (
+        extract_contact_details(content["text"]).model_dump() if content.get("text") else {}
+    )
     return ProfileView(
         is_example=content.get("example") is True,
         filename=content.get("filename"),
@@ -84,6 +87,7 @@ def get_view(
         shortlist_threshold=row["shortlist_threshold"],
         boards=row["boards"],
         connections=connections(settings),
+        contact=contact,
         warning=warning,
     )
 
@@ -120,7 +124,11 @@ def upload_resume(
         with conn.transaction():
             if profiles_repo.has_example_resume(conn, profile_id):
                 profiles_repo.clear_example_data(conn, profile_id)
-            content = {"filename": _display_name(filename), "text": text}
+            content = {
+                "filename": _display_name(filename),
+                "text": text,
+                "contact": extract_contact_details(text).model_dump(),
+            }
             profiles_repo.add_base_resume(conn, profile_id, content, str(path), resume)
     except Exception:
         path.unlink(missing_ok=True)

@@ -47,9 +47,10 @@ job-autopilot/
 │   │   ├── chains/              # LLM chains. Prompt + model + output parser.
 │   │   │   ├── manager.py       # get_chain(name) → builds chain with model from settings
 │   │   │   ├── resume_profile_chain.py   query_chain.py
-│   │   │   ├── score_chain.py   tailor_chain.py   fact_check_chain.py
-│   │   │   ├── company_summary_chain.py   cover_note_chain.py
-│   │   │   └── prompts/         # score.md tailor.md fact_check.md ... (plain text, easy to edit)
+│   │   │   ├── score_chain.py   resume_sections_chain.py
+│   │   │   ├── tailor_chain.py  # tailoring, cover note body and the AI fact check
+│   │   │   └── company_summary_chain.py   careers_chain.py   alert_chain.py
+│   │   │                    # prompts are constants at the top of each chain file
 │   │   │
 │   │   ├── graphs/              # LangGraph. One folder per graph.
 │   │   │   ├── lead/
@@ -67,7 +68,8 @@ job-autopilot/
 │   │   │   ├── settings.py  runs.py  webhooks.py
 │   │   │
 │   │   └── workers/
-│   │       ├── scheduler.py     # APScheduler: daily lead run, 15-min outreach run
+│   │       ├── scheduler.py     # APScheduler: daily lead run, 15-min tailoring queue, 15-min outreach run
+│   │       ├── tailor_job.py    # tailors approved jobs one at a time
 │   │       └── outbox_worker.py
 │   │
 │   └── tests/

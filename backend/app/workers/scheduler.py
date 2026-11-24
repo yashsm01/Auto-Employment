@@ -12,6 +12,7 @@ from app.core.errors import Conflict
 from app.db.client import connect
 from app.repositories import profiles_repo, runs_repo
 from app.workers.lead_job import run_lead_search
+from app.workers.tailor_job import process_tailoring_queue
 
 logger = logging.getLogger(__name__)
 
@@ -71,5 +72,15 @@ def start_scheduler(settings: Settings) -> BackgroundScheduler | None:
         misfire_grace_time=MISFIRE_GRACE_SECONDS,
     )
     scheduler.add_job(_catch_up, "date", args=[settings], id="startup-catch-up")
+    # Picks up resumes left waiting, for example after the backend restarts.
+    scheduler.add_job(
+        process_tailoring_queue,
+        "interval",
+        minutes=15,
+        args=[settings],
+        id="tailoring-queue",
+        max_instances=1,
+        coalesce=True,
+    )
     scheduler.start()
     return scheduler

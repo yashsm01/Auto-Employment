@@ -15,6 +15,8 @@ export function useApplicationDecision(id: string) {
         client.invalidateQueries({ queryKey: ["application", id] }),
         client.invalidateQueries({ queryKey: ["shortlist"] }),
         client.invalidateQueries({ queryKey: ["pipeline"] }),
+        // Approving starts tailoring, so the Resume review list changes too.
+        client.invalidateQueries({ queryKey: ["resume-review"] }),
       ]),
   });
 }

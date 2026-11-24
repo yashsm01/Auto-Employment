@@ -149,3 +149,79 @@ def detail(
         """,
         (application_id, profile_id),
     ).fetchone()
+
+
+def tailoring_context(conn: psycopg.Connection, application_id: str) -> dict[str, Any] | None:
+    return conn.execute(
+        """
+        select a.id, a.profile_id, a.status, j.source, j.external_id, j.title, j.location,
+               j.description, j.company_id, coalesce(c.name, 'Unknown employer') as company
+        from applications a
+        join jobs j on j.id = a.job_id
+        left join companies c on c.id = j.company_id
+        where a.id = %s
+        """,
+        (application_id,),
+    ).fetchone()
+
+
+def next_tailoring(
+    conn: psycopg.Connection, skip: list[str], only_untried: bool
+) -> dict[str, Any] | None:
+    """Untried means no resume run has started since the job was last set to tailoring."""
+    return conn.execute(
+        """
+        select a.id
+        from applications a
+        where a.status = 'tailoring'
+          and a.id <> all(%s::uuid[])
+          and (not %s or not exists (
+              select 1 from graph_runs g
+              where g.graph = 'resume' and g.application_id = a.id
+                and g.started_at >= a.updated_at
+          ))
+        order by a.updated_at, a.id
+        limit 1
+        """,
+        (skip, only_untried),
+    ).fetchone()
+
+
+def set_resume(
+    conn: psycopg.Connection, application_id: str, resume_id: UUID, status: str
+) -> None:
+    conn.execute(
+        "update applications set resume_id = %s, status = %s, updated_at = now() where id = %s",
+        (resume_id, status, application_id),
+    )
+
+
+def review_rows(conn: psycopg.Connection, profile_id: UUID) -> list[dict[str, Any]]:
+    return conn.execute(
+        """
+        select a.id, a.status, a.resume_id, a.updated_at, j.title,
+               coalesce(c.name, 'Unknown employer') as company
+        from applications a
+        join jobs j on j.id = a.job_id
+        left join companies c on c.id = j.company_id
+        where a.profile_id = %s and a.status in ('tailoring', 'ready')
+        order by a.updated_at desc, a.id
+        """,
+        (profile_id,),
+    ).fetchall()
+
+
+def review_row(
+    conn: psycopg.Connection, profile_id: UUID, application_id: UUID
+) -> dict[str, Any] | None:
+    return conn.execute(
+        """
+        select a.id, a.status, a.resume_id, a.updated_at, j.title,
+               coalesce(c.name, 'Unknown employer') as company
+        from applications a
+        join jobs j on j.id = a.job_id
+        left join companies c on c.id = j.company_id
+        where a.profile_id = %s and a.id = %s
+        """,
+        (profile_id, application_id),
+    ).fetchone()

@@ -5,7 +5,9 @@ import Employers from "./pages/Employers";
 import JobDetail from "./pages/JobDetail";
 import Pipeline from "./pages/Pipeline";
 import Profile from "./pages/Profile";
+import ResumeReview from "./pages/ResumeReview";
 import Shortlist from "./pages/Shortlist";
+import TailoredResume from "./pages/TailoredResume";
 
 export default function App() {
   return (
@@ -14,6 +16,8 @@ export default function App() {
         <Route index element={<Pipeline />} />
         <Route path="shortlist" element={<Shortlist />} />
         <Route path="jobs/:id" element={<JobDetail />} />
+        <Route path="jobs/:id/resume" element={<TailoredResume />} />
+        <Route path="resumes" element={<ResumeReview />} />
         <Route path="profile" element={<Profile />} />
         <Route path="employers" element={<Employers />} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,6 +1,6 @@
 # Process flow
 
-The full target flow. **Phase 1 builds the lead graph only.** Resume tailoring, sending and calls come in later phases, and nothing is sent to employers yet.
+The full target flow. **Phases 1 and 2 build the lead graph and the resume graph.** Sending and calls come in later phases, and nothing is sent to employers yet.
 
 ## End to end
 
@@ -21,8 +21,9 @@ flowchart LR
     R1 -- approve --> G
     subgraph T2[2. Resume graph · on approve]
         G[Read job + employer facts] --> H[Tailor resume + cover note]
-        H --> I[Fact check vs base resume]
-        I -- fails --> H
+        H --> I[Fact check vs base resume + job post]
+        I -- unsupported line --> I2[Put back original wording]
+        I2 --> J
         I -- passes --> J[Render PDF]
     end
     J --> R2{{You review resume}}
@@ -49,7 +50,8 @@ stateDiagram-v2
     found --> shortlisted: score passes
     found --> closed: score fails
     shortlisted --> tailoring: you approve
-    tailoring --> ready: fact check passes
+    tailoring --> ready: resume and PDF saved
+    ready --> closed: you reject
     ready --> approved: you approve / auto mode
     approved --> sent: outbox worker
     sent --> followed_up: no reply in 5 days
@@ -74,3 +76,16 @@ stateDiagram-v2
 - With a Google Maps key and a real resume, each search first finds employers for your titles and towns, rotating towns day by day, and saves them. Removed employers are not added back.
 - The `employer_sites` source reads 8 saved employers' websites per search, longest unchecked first. A linked Greenhouse, Lever or Ashby board is read directly. Otherwise AI lists jobs from the careers page, and any title not on the page is dropped.
 - Every run stores a per-source report in `graph_runs.output.sources`, which the Pipeline page shows as "Where the last search looked".
+
+## Resume graph rules in Phase 2
+
+- Approving a job sets it to `tailoring` and starts the resume graph in the background. A queue every 15 minutes picks up approved jobs that have not been tried yet. Failed jobs wait for the Try again button. A tailoring run cut off by a restart is cleared after 10 minutes.
+- Steps: `load_application → prepare_sections → tailor → check_facts → render_pdf → save_resume`. A failure rolls back the run, keeps the job in `tailoring`, and shows the error with a Try again button.
+- Your resume is split into summary, roles, bullets, skills and education once, and cached. A part is kept only if its words appear in your resume.
+- The AI may only reword bullets and choose their order. Titles, employers, dates and education come from your resume, and skills are limited to the ones it lists.
+- Code check: a bullet that adds a number or a known skill not in the original goes back to the original wording. The same applies to the summary.
+- AI check: a second model compares the result with your resume, the job post and the employer facts. Flagged bullets go back to the original wording, and flagged cover note sentences are removed.
+- The AI writes only the body of the cover note. The app adds "Kia ora," and "Ngā mihi," with your name, so your name is not sent to the tailoring AI.
+- Only employer facts with high or medium confidence are offered to the AI, and the facts used are listed on the review page.
+- Without an AI key, the PDF uses your resume as it is, with a short standard cover note, and the page says AI was not used.
+- Rejecting a resume closes the job. It does not count as a skip, so it does not lower future scores.

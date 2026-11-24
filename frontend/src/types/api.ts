@@ -176,6 +176,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/resume-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resume Review */
+        get: operations["resume_review_resume_review_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tailored Resume */
+        get: operations["tailored_resume_applications__application_id__resume_get"];
+        /** Save Cover Note */
+        put: operations["save_cover_note_applications__application_id__resume_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_id}/resume-decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume Decision */
+        post: operations["resume_decision_applications__application_id__resume_decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_id}/tailor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Regenerate */
+        post: operations["regenerate_applications__application_id__tailor_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/resumes/{resume_id}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resume Pdf */
+        get: operations["resume_pdf_resumes__resume_id__pdf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs/lead": {
         parameters: {
             query?: never;
@@ -236,6 +322,23 @@ export interface components {
             /** Timeline */
             timeline: components["schemas"]["TimelineEvent"][];
         };
+        /**
+         * BaseSections
+         * @description The base resume split into parts. Every part was checked against the resume text.
+         */
+        BaseSections: {
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /** Roles */
+            roles?: components["schemas"]["RoleSection"][];
+            /** Skills */
+            skills?: string[];
+            /** Education */
+            education?: string[];
+        };
         /** BoardCard */
         BoardCard: {
             /**
@@ -288,6 +391,30 @@ export interface components {
         Body_upload_resume_profile_resume_post: {
             /** File */
             file: string;
+        };
+        /** Bullet */
+        Bullet: {
+            /** Id */
+            id: string;
+            /** Text */
+            text: string;
+        };
+        /**
+         * ContactDetails
+         * @description Shown on the resume header. Never sent to an AI model.
+         */
+        ContactDetails: {
+            /** Name */
+            name?: string | null;
+            /** Email */
+            email?: string | null;
+            /** Phone */
+            phone?: string | null;
+        };
+        /** CoverNoteUpdate */
+        CoverNoteUpdate: {
+            /** Cover Note */
+            cover_note: string;
         };
         /** DecisionRequest */
         DecisionRequest: {
@@ -424,6 +551,7 @@ export interface components {
             shortlist_threshold: number;
             /** Boards */
             boards: components["schemas"]["BoardEntry"][];
+            contact?: components["schemas"]["ContactDetails"] | null;
         };
         /** ProfileView */
         ProfileView: {
@@ -447,6 +575,8 @@ export interface components {
             shortlist_threshold: number;
             /** Boards */
             boards: components["schemas"]["BoardEntry"][];
+            /** @default {} */
+            contact: components["schemas"]["ContactDetails"];
             /** Is Example */
             is_example: boolean;
             /** Filename */
@@ -461,6 +591,56 @@ export interface components {
             };
             /** Warning */
             warning?: string | null;
+        };
+        /** ResumeDecision */
+        ResumeDecision: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "approve" | "reject";
+        };
+        /** ReviewItem */
+        ReviewItem: {
+            /**
+             * Application Id
+             * Format: uuid
+             */
+            application_id: string;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
+            /** Company */
+            company: string;
+            /** Resume Id */
+            resume_id: string | null;
+            /** Error */
+            error: string | null;
+        };
+        /** ReviewList */
+        ReviewList: {
+            /** Items */
+            items: components["schemas"]["ReviewItem"][];
+        };
+        /** RoleSection */
+        RoleSection: {
+            /** Title */
+            title: string;
+            /** Employer */
+            employer: string;
+            /**
+             * Location
+             * @default
+             */
+            location: string;
+            /**
+             * Dates
+             * @default
+             */
+            dates: string;
+            /** Bullets */
+            bullets?: components["schemas"]["Bullet"][];
         };
         /** RunResponse */
         RunResponse: {
@@ -574,6 +754,67 @@ export interface components {
             status: string;
             /** Detail */
             detail?: string | null;
+        };
+        /** StatusResponse */
+        StatusResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
+        };
+        /** TailoredResume */
+        TailoredResume: {
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /** Roles */
+            roles?: components["schemas"]["RoleSection"][];
+            /** Skills */
+            skills?: string[];
+            /** Education */
+            education?: string[];
+            /**
+             * Cover Note
+             * @default
+             */
+            cover_note: string;
+        };
+        /** TailoredResumeView */
+        TailoredResumeView: {
+            /**
+             * Application Id
+             * Format: uuid
+             */
+            application_id: string;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
+            /** Company */
+            company: string;
+            /** Resume Id */
+            resume_id: string | null;
+            base: components["schemas"]["BaseSections"] | null;
+            tailored: components["schemas"]["TailoredResume"] | null;
+            /** Changed Ids */
+            changed_ids: string[];
+            /** Notes */
+            notes: string[];
+            /** Cover Note */
+            cover_note: string;
+            /** Facts Used */
+            facts_used: string[];
+            /** Ai Used */
+            ai_used: boolean;
+            /** Pdf Url */
+            pdf_url: string | null;
+            /** Error */
+            error: string | null;
         };
         /** TimelineEvent */
         TimelineEvent: {
@@ -927,6 +1168,189 @@ export interface operations {
                     "application/json": {
                         [key: string]: boolean;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_review_resume_review_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewList"];
+                };
+            };
+        };
+    };
+    tailored_resume_applications__application_id__resume_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TailoredResumeView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_cover_note_applications__application_id__resume_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoverNoteUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TailoredResumeView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_decision_applications__application_id__resume_decision_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResumeDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    regenerate_applications__application_id__tailor_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_pdf_resumes__resume_id__pdf_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                resume_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

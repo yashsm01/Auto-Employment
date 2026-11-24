@@ -259,6 +259,11 @@ export default function JobDetail() {
       </header>
 
       {decision.error && <ErrorNotice message={decision.error.message} />}
+      {["tailoring", "ready", "approved"].includes(job.status) && (
+        <Link to={`/jobs/${job.id}/resume`} className="btn self-start">
+          View tailored resume
+        </Link>
+      )}
 
       <div
         role="tablist"

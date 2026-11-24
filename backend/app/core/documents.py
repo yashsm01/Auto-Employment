@@ -10,6 +10,7 @@ from pypdf import PdfReader
 from pypdf.errors import PyPdfError
 
 from app.core.errors import BadRequest
+from app.schemas.tailoring import ContactDetails
 
 ALLOWED_SUFFIXES = {".pdf", ".docx"}
 MAX_PDF_PAGES = 20
@@ -76,6 +77,37 @@ def extract_resume_text(filename: str, data: bytes) -> str:
     if len(text) > MAX_TEXT_CHARS:
         raise BadRequest("This resume has too much text to read.")
     return text
+
+
+_NAME_WORD = re.compile(r"^[A-Z][A-Za-zÀ-ÖØ-öø-ÿĀ-ž'’.-]*$")
+_NOT_NAME_WORDS = {
+    "curriculum", "vitae", "resume", "résumé", "cv", "profile", "summary", "contact",
+    "developer", "engineer", "analyst", "manager", "consultant", "designer", "tester",
+}
+
+
+def _is_phone(value: str) -> bool:
+    digits = sum(character.isdigit() for character in value)
+    return 8 <= digits <= 15 and not _YEAR_RANGE.fullmatch(value)
+
+
+def extract_contact_details(text: str) -> ContactDetails:
+    """The name, email and phone at the top of a resume, found without AI."""
+    email = _EMAIL.search(text)
+    phone = next(
+        (m.group(0).strip() for m in _PHONE.finditer(text) if _is_phone(m.group(0).strip())), None
+    )
+    name = None
+    for line in [line.strip() for line in text.splitlines() if line.strip()][:5]:
+        words = line.split()
+        if (
+            2 <= len(words) <= 4
+            and all(_NAME_WORD.match(word) for word in words)
+            and not {word.casefold() for word in words} & _NOT_NAME_WORDS
+        ):
+            name = line
+            break
+    return ContactDetails(name=name, email=email.group(0) if email else None, phone=phone)
 
 
 def _mask_phone(match: re.Match[str]) -> str:

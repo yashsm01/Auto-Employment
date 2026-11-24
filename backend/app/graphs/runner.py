@@ -8,13 +8,13 @@ from uuid import UUID
 
 from app.core.errors import Conflict
 from app.graphs.lead import graph as lead_graph
-from app.graphs.lead.deps import LeadDeps
 from app.graphs.lead.state import LeadState
+from app.graphs.resume import graph as resume_graph
 from app.repositories import runs_repo
 
 logger = logging.getLogger(__name__)
 
-_GRAPHS = {"lead": lead_graph.build}
+_GRAPHS = {"lead": lead_graph.build, "resume": resume_graph.build}
 _TASK_NOTE = re.compile(r"During task with name '([^']+)'")
 
 
@@ -51,10 +51,22 @@ def _summarise(state: LeadState) -> dict[str, Any]:
     }
 
 
-def run_graph(name: str, graph_input: dict[str, Any], deps: LeadDeps) -> GraphRunResult:
+def _summarise_resume(state: dict[str, Any]) -> dict[str, Any]:
+    resume_id = state.get("resume_id")
+    return {
+        "resume_id": str(resume_id) if resume_id else None,
+        "ai_used": state.get("ai_used", False),
+        "notes": state.get("notes", []),
+    }
+
+
+_SUMMARIES = {"lead": _summarise, "resume": _summarise_resume}
+
+
+def run_graph(name: str, graph_input: dict[str, Any], deps: Any) -> GraphRunResult:
     """Run a graph. All its writes are rolled back if any step fails."""
     conn = deps.conn
-    run_id = runs_repo.start(conn, name, graph_input)
+    run_id = runs_repo.start(conn, name, graph_input, graph_input.get("application_id"))
     conn.commit()
     if run_id is None:
         raise Conflict(f"The {name} search is already running")
@@ -62,7 +74,7 @@ def run_graph(name: str, graph_input: dict[str, Any], deps: LeadDeps) -> GraphRu
     try:
         with conn.transaction():
             final = _GRAPHS[name]().invoke(graph_input, config={"configurable": {"deps": deps}})
-            output = _summarise(final)
+            output = _SUMMARIES[name](final)
             runs_repo.finish(conn, run_id, output)
     except Exception as error:
         logger.exception("Graph %s failed (run %s)", name, run_id)

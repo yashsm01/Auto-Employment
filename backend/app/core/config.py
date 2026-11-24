@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr = SecretStr("")
     resume_model: str = "claude-sonnet-5-5"
     scoring_model: str = "claude-haiku-5-5"
+    tailor_model: str = "claude-haiku-5-5"
     max_ai_scores_per_run: int = 30
 
     # Gemini embeddings rank jobs before AI scoring.

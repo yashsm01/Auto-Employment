@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import applications, employers, pipeline, profile, runs
+from app.api import applications, employers, pipeline, profile, resumes, runs
 from app.core.config import Settings
 from app.core.errors import AppError, BadRequest, Conflict, NotFound, ProviderError
 from app.workers.scheduler import start_scheduler
@@ -57,6 +57,7 @@ def create_app(run_scheduler: bool = False) -> FastAPI:
     app.include_router(applications.router)
     app.include_router(profile.router)
     app.include_router(employers.router)
+    app.include_router(resumes.router)
     app.include_router(runs.router)
     return app
 

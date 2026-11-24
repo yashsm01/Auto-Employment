@@ -184,6 +184,25 @@ def update_profile(conn: psycopg.Connection, profile_id: UUID, update: ProfileUp
             profile_id,
         ),
     )
+    if update.contact is not None:
+        conn.execute(
+            """
+            update resumes
+            set content = content || jsonb_build_object('contact', %s::jsonb)
+            where id = (
+                select id from resumes
+                where profile_id = %s and kind = 'base'
+                order by created_at desc
+                limit 1
+            )
+            """,
+            (Jsonb(update.contact.model_dump()), profile_id),
+        )
+        if update.contact.name:
+            conn.execute(
+                "update profiles set full_name = %s where id = %s",
+                (update.contact.name, profile_id),
+            )
     boards = [board.model_dump() for board in update.boards]
     conn.execute(
         """

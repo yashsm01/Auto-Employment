@@ -71,6 +71,9 @@ function ProfileForm({ profile, busy, onSave }: FormProps) {
   const [token, setToken] = useState("");
   const [company, setCompany] = useState("");
   const [boardError, setBoardError] = useState<string | null>(null);
+  const [fullName, setFullName] = useState(profile.contact.name ?? "");
+  const [email, setEmail] = useState(profile.contact.email ?? "");
+  const [phone, setPhone] = useState(profile.contact.phone ?? "");
 
   const [customPlaces, setCustomPlaces] = useState(
     profile.regions.filter((region) => !REGIONS.includes(region)),
@@ -117,6 +120,11 @@ function ProfileForm({ profile, busy, onSave }: FormProps) {
         avoid_keywords: avoid,
         shortlist_threshold: threshold,
         boards,
+        contact: {
+          name: fullName.trim() || null,
+          email: email.trim() || null,
+          phone: phone.trim() || null,
+        },
       },
       thenSearch,
     );
@@ -356,6 +364,34 @@ function ProfileForm({ profile, busy, onSave }: FormProps) {
           </button>
         </div>
         {boardError && <ErrorNotice message={boardError} />}
+      </section>
+
+      <section className="card flex flex-col gap-3">
+        <h2 className="m-0 font-display text-[17px] font-bold">Your details for resumes</h2>
+        <p className="m-0 text-[13px] text-muted">
+          Shown at the top of each tailored resume. Your email and phone number are removed
+          from your resume before it is sent to AI.
+        </p>
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="label" htmlFor="full-name">
+              Full name
+            </label>
+            <input id="full-name" className="input" value={fullName} onChange={(event) => setFullName(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="label" htmlFor="contact-email">
+              Email
+            </label>
+            <input id="contact-email" className="input" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="label" htmlFor="contact-phone">
+              Phone
+            </label>
+            <input id="contact-phone" className="input" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} />
+          </div>
+        </div>
       </section>
 
       <section className="card flex flex-col gap-2">

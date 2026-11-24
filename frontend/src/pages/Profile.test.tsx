@@ -27,6 +27,7 @@ function profile(overrides: Partial<ProfileView> = {}): ProfileView {
     boards: [],
     connections: { claude: true, gemini: false, trademe: false, gmail: false, places: false, tavily: false },
     warning: null,
+    contact: { name: "Sample Person", email: "sample@example.invalid", phone: "021 000 0000" },
     ...overrides,
   };
 }
@@ -275,6 +276,26 @@ describe("Profile", () => {
     await user.click(screen.getByRole("checkbox", { name: "Dunedin" }));
 
     expect(screen.getByRole("checkbox", { name: "All of New Zealand" })).not.toBeChecked();
+  });
+
+  it("saves your name and contact details for resumes", async () => {
+    const calls = withProfile(profile());
+    const user = userEvent.setup();
+    renderPage(<Profile />);
+    await screen.findByText("resume.pdf");
+
+    expect(screen.getByLabelText("Full name")).toHaveValue("Sample Person");
+    await user.clear(screen.getByLabelText("Full name"));
+    await user.type(screen.getByLabelText("Full name"), "Sam Person");
+    await user.clear(screen.getByLabelText("Phone"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await screen.findByText("Profile saved.");
+    expect(savedBody(calls).contact).toEqual({
+      name: "Sam Person",
+      email: "sample@example.invalid",
+      phone: null,
+    });
   });
 
   it("keeps unsaved edits when the profile refreshes in the background", async () => {

@@ -2,7 +2,7 @@
 
 A personal tool that finds New Zealand jobs, scores them against your resume, researches employers, and tracks each job from shortlist to reply.
 
-**Current state: Phase 1.** It reads your resume, searches, scores, shortlists and researches employers. It does not send anything to employers yet. Until you add your resume or a job source, it uses clearly labelled example jobs.
+**Current state: Phase 2.** It reads your resume, searches, scores, shortlists and researches employers. When you approve a job, it writes a tailored resume and cover note for you to review. It does not send anything to employers yet. Until you add your resume or a job source, it uses clearly labelled example jobs.
 
 ## Run it locally
 
@@ -39,6 +39,7 @@ Everything below is optional. Add keys to `backend/.env`, then restart the backe
 | Company careers pages | Nothing. Add Greenhouse, Lever or Ashby boards on your profile | No jobs from those companies |
 | Local employers from Google Maps | `GOOGLE_MAPS_API_KEY`, plus `ANTHROPIC_API_KEY` to read careers pages | No employer websites checked |
 | AI resume reading and scoring | `ANTHROPIC_API_KEY` | Free keyword matching |
+| Tailored resumes and cover notes | `ANTHROPIC_API_KEY` | Your resume as it is, with a short standard cover note |
 | Job ranking | `GOOGLE_API_KEY` | Skill matching only |
 | Trade Me jobs | `TRADEME_CONSUMER_KEY` and `TRADEME_CONSUMER_SECRET` | No Trade Me jobs |
 | SEEK, LinkedIn and Indeed alerts | `EMAIL_ENABLED`, `EMAIL_ADDRESS`, `EMAIL_APP_PASSWORD` and `ANTHROPIC_API_KEY` | No alert jobs |
@@ -60,6 +61,20 @@ EMAIL_APP_PASSWORD=your-16-letter-app-password
 The app reads your mailbox read-only. It never sends, deletes or marks email, and it never opens links from alerts. Set your job alerts for NZ, for example on nz.indeed.com.
 
 The search runs daily at 7 am NZ time **while the backend is running**. If the computer was off, it catches up the next time the backend starts.
+
+## Tailored resumes
+
+1. On **Shortlist**, approve a job. Tailoring starts straight away and usually takes under a minute.
+2. Open **Resume review**. Each job shows your original resume next to the tailored one, with reworded lines highlighted.
+3. Edit the cover note if you like, then **Approve**, **Reject** or **Regenerate**. **Download PDF** gives the file that will be attached.
+
+Tailoring only rewords and reorders what your resume already says. Titles, employers and dates are copied from your resume, never from the AI. Every result is checked twice: by code (no new numbers or skills) and by a second AI check against your resume and the job post. Anything unsupported goes back to your original wording, and the Fact check box lists what changed back.
+
+Your name, email and phone at the top of the PDF come from **My resume profile** under "Your details for resumes". Your email and phone number are removed from your resume before it is sent to AI. The greeting and sign-off are added by the app.
+
+If tailoring fails, the job shows the error and a **Try again** button. Failed jobs are not retried on their own, so a broken key does not keep using calls. A queue every 15 minutes picks up approved jobs that have not been tried yet, for example after a restart. Approved resumes wait for Phase 3, which adds email sending.
+
+Models are set in `.env`: `RESUME_MODEL` reads your resume into sections, `TAILOR_MODEL` writes the tailored version, and `SCORING_MODEL` runs the fact check.
 
 ## Project docs
 
