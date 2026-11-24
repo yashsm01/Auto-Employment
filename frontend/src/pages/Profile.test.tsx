@@ -32,10 +32,15 @@ function profile(overrides: Partial<ProfileView> = {}): ProfileView {
   };
 }
 
+const deepSearch = () => ({
+  body: { enabled: false, monthly_limit: 30, used_this_month: 0, available: true },
+});
+
 function withProfile(initial: ProfileView, extra = {}) {
   let current = initial;
   return mockApi({
     "GET /profile": () => ({ body: current }),
+    "GET /deep-search": deepSearch,
     "PUT /profile": (body) => {
       current = { ...current, ...(body as Partial<ProfileView>) };
       return { body: current };
@@ -351,6 +356,7 @@ describe("Profile", () => {
   it("keeps edits and shows the error when saving fails", async () => {
     mockApi({
       "GET /profile": () => ({ body: profile() }),
+      "GET /deep-search": deepSearch,
       "PUT /profile": () => ({ status: 500, body: { detail: "Database down" } }),
     });
     const user = userEvent.setup();

@@ -9,12 +9,13 @@ from uuid import UUID
 from app.core.errors import Conflict
 from app.graphs.lead import graph as lead_graph
 from app.graphs.lead.state import LeadState
+from app.graphs.prep import graph as prep_graph
 from app.graphs.resume import graph as resume_graph
 from app.repositories import runs_repo
 
 logger = logging.getLogger(__name__)
 
-_GRAPHS = {"lead": lead_graph.build, "resume": resume_graph.build}
+_GRAPHS = {"lead": lead_graph.build, "resume": resume_graph.build, "prep": prep_graph.build}
 _TASK_NOTE = re.compile(r"During task with name '([^']+)'")
 
 
@@ -60,7 +61,16 @@ def _summarise_resume(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-_SUMMARIES = {"lead": _summarise, "resume": _summarise_resume}
+def _summarise_prep(state: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "pack_id": state.get("pack_id"),
+        "cost_usd": state.get("cost_usd", 0.0),
+        "facts": len(state.get("facts", [])),
+        "stopped_by": state.get("stopped_by"),
+    }
+
+
+_SUMMARIES = {"lead": _summarise, "resume": _summarise_resume, "prep": _summarise_prep}
 
 
 def run_graph(name: str, graph_input: dict[str, Any], deps: Any) -> GraphRunResult:

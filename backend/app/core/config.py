@@ -13,7 +13,12 @@ ENV_FILE = BACKEND_DIR / ".env"
 
 # These names are often set globally for other tools. Using them could bill the wrong account,
 # so this app reads them only from backend/.env.
-_PROJECT_FILE_ONLY = {"anthropic_api_key", "google_api_key"}
+_PROJECT_FILE_ONLY = {
+    "anthropic_api_key",
+    "google_api_key",
+    "tavily_api_key",
+    "google_maps_api_key",
+}
 
 
 class _ShellSettings(EnvSettingsSource):
@@ -47,6 +52,11 @@ class Settings(BaseSettings):
     resume_model: str = "claude-sonnet-5-5"
     scoring_model: str = "claude-haiku-5-5"
     tailor_model: str = "claude-haiku-5-5"
+    # Deep search: Haiku plans, reads and explores; Sonnet writes the pack.
+    prep_model: str = "claude-haiku-5-5"
+    prep_write_model: str = "claude-sonnet-5-5"
+    usd_to_nzd: float = 1.70
+    max_prep_places_calls_per_month: int = 1000
     max_ai_scores_per_run: int = 30
 
     # Gemini embeddings rank jobs before AI scoring.

@@ -1,5 +1,7 @@
 from collections.abc import Sequence
+from dataclasses import dataclass
 
+from app.chains.prep_chains import ExploreChain, ExtractChain, PlanChain, WriteChain
 from app.chains.resume_profile_chain import ResumeChain, ResumeProfileChain
 from app.chains.resume_sections_chain import ResumeSectionsChain
 from app.chains.score_chain import (
@@ -45,4 +47,26 @@ def get_tailoring_chains(
         ResumeSectionsChain(sections_llm) if sections_llm else None,
         TailorChain(tailor_llm) if tailor_llm else None,
         FactCheckChain(check_llm) if check_llm else None,
+    )
+
+
+@dataclass
+class PrepChains:
+    plan: PlanChain
+    extract: ExtractChain
+    explore: ExploreChain
+    write: WriteChain
+
+
+def get_prep_chains(settings: Settings) -> PrepChains | None:
+    """Chains for deep search, or None without a Claude key."""
+    small = build_claude(settings, settings.prep_model, effort="low")
+    writer = build_claude(settings, settings.prep_write_model, effort="medium")
+    if small is None or writer is None:
+        return None
+    return PrepChains(
+        plan=PlanChain(small, settings.prep_model),
+        extract=ExtractChain(small, settings.prep_model),
+        explore=ExploreChain(small, settings.prep_model),
+        write=WriteChain(writer, settings.prep_write_model),
     )

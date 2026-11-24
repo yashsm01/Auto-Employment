@@ -262,6 +262,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/deep-search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Deep Search */
+        get: operations["get_deep_search_deep_search_get"];
+        /** Save Deep Search */
+        put: operations["save_deep_search_deep_search_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_id}/prep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Prep */
+        get: operations["get_prep_applications__application_id__prep_get"];
+        put?: never;
+        /** Run Prep */
+        post: operations["run_prep_applications__application_id__prep_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs/lead": {
         parameters: {
             query?: never;
@@ -436,6 +472,36 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** DeepSearchSettings */
+        DeepSearchSettings: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Monthly Limit
+             * @default 30
+             */
+            monthly_limit: number;
+        };
+        /** DeepSearchView */
+        DeepSearchView: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Monthly Limit
+             * @default 30
+             */
+            monthly_limit: number;
+            /** Used This Month */
+            used_this_month: number;
+            /** Available */
+            available: boolean;
+        };
         /** EmployerDetail */
         EmployerDetail: {
             /** Name */
@@ -467,6 +533,18 @@ export interface components {
             confidence: string;
             /** Source Url */
             source_url: string | null;
+        };
+        /** EvidenceItem */
+        EvidenceItem: {
+            /** Requirement */
+            requirement: string;
+            /** Evidence */
+            evidence?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "matched" | "gap" | "check";
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -528,6 +606,65 @@ export interface components {
             ready_to_send: number;
             /** Replies This Week */
             replies_this_week: number;
+        };
+        /** PrepPack */
+        PrepPack: {
+            /** Evidence */
+            evidence?: components["schemas"]["EvidenceItem"][];
+            /** Interview Stages */
+            interview_stages?: string[];
+            pay?: components["schemas"]["SourcedLine"] | null;
+            /** Employer */
+            employer?: components["schemas"]["SourcedLine"][];
+            /** Questions */
+            questions?: string[];
+            /** Brush Up */
+            brush_up?: string[];
+            /** Practical */
+            practical?: components["schemas"]["SourcedLine"][];
+            /** Tips */
+            tips?: string[];
+            /** Unknowns */
+            unknowns?: string[];
+            /** Could Not Verify */
+            could_not_verify?: string[];
+            /** Directions Url */
+            directions_url?: string | null;
+        };
+        /** PrepRequest */
+        PrepRequest: {
+            /** Extra */
+            extra?: string | null;
+        };
+        /** PrepView */
+        PrepView: {
+            /**
+             * Application Id
+             * Format: uuid
+             */
+            application_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "none" | "queued" | "running" | "done" | "failed";
+            pack?: components["schemas"]["PrepPack"] | null;
+            /** Sources */
+            sources?: components["schemas"]["SourceLink"][];
+            /** Notes */
+            notes?: string[];
+            /** Cost Nzd */
+            cost_nzd?: number | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Available */
+            available: boolean;
+            /** Used This Month */
+            used_this_month: number;
+            /** Monthly Limit */
+            monthly_limit: number;
         };
         /** ProfileUpdate */
         ProfileUpdate: {
@@ -744,6 +881,17 @@ export interface components {
             /** Level */
             level?: string | null;
         };
+        /** SourceLink */
+        SourceLink: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url?: string | null;
+            /** Kind */
+            kind: string;
+        };
         /** SourceReport */
         SourceReport: {
             /** Source */
@@ -754,6 +902,15 @@ export interface components {
             status: string;
             /** Detail */
             detail?: string | null;
+        };
+        /** SourcedLine */
+        SourcedLine: {
+            /** Text */
+            text: string;
+            /** Source Ids */
+            source_ids?: string[];
+            /** Quote */
+            quote?: string | null;
         };
         /** StatusResponse */
         StatusResponse: {
@@ -1351,6 +1508,125 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_deep_search_deep_search_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeepSearchView"];
+                };
+            };
+        };
+    };
+    save_deep_search_deep_search_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeepSearchSettings"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeepSearchView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_prep_applications__application_id__prep_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrepView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_prep_applications__application_id__prep_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrepRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrepView"];
                 };
             };
             /** @description Validation Error */

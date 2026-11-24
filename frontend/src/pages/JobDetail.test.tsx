@@ -127,6 +127,37 @@ describe("JobDetail", () => {
     });
   });
 
+  it("shows deep search starting on the Preparation tab after approving", async () => {
+    let current = detail();
+    let prepStatus = "none";
+    const prep = () => ({
+      body: {
+        application_id: "a1", status: prepStatus, pack: null, sources: [], notes: [],
+        cost_nzd: null, finished_at: null, error: null, available: true,
+        used_this_month: 0, monthly_limit: 30,
+      },
+    });
+    mockApi({
+      "GET /applications/a1": () => ({ body: current }),
+      "GET /applications/a1/prep": prep,
+      "POST /applications/a1/decision": () => {
+        current = detail({ status: "tailoring" });
+        prepStatus = "queued";
+        return { body: { id: "a1", status: "tailoring" } };
+      },
+    });
+    const user = userEvent.setup();
+    renderPage(page, "/jobs/a1");
+    await user.click(await screen.findByRole("tab", { name: "Preparation" }));
+    await screen.findByRole("button", { name: "Run deep search" });
+
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+
+    expect(
+      await screen.findByText("Deep search is running. This takes about a minute."),
+    ).toBeInTheDocument();
+  });
+
   it("hides decisions once a job is closed", async () => {
     mockApi({ "GET /applications/a1": () => ({ body: detail({ status: "closed" }) }) });
     renderPage(page, "/jobs/a1");

@@ -89,3 +89,26 @@ stateDiagram-v2
 - Only employer facts with high or medium confidence are offered to the AI, and the facts used are listed on the review page.
 - Without an AI key, the PDF uses your resume as it is, with a short standard cover note, and the page says AI was not used.
 - Rejecting a resume closes the job. It does not count as a skip, so it does not lower future scores.
+
+## Prep graph rules (deep search)
+
+Deep search is an addition to the original plan. It researches one job and saves a preparation pack in `prep_packs`.
+
+- A request makes a `prep_packs` row with status `queued`. Requests come from approving a job with the switch on, or from the Run deep search button. Only one `prep` run happens at a time; the worker takes queued rows oldest first. A 15-minute scheduler job picks up any left waiting.
+- Steps: `load_job → plan → gather → extract → check_gaps → [explore] → write → save`.
+- `gather` collects pages in this order:
+  1. The job post.
+  2. The user's extra details, as text or an allowed link.
+  3. The advert URL, if allowed.
+  4. The employer's website and its careers link.
+  5. Google Maps.
+  6. Tavily results for up to 4 planned searches. These are used from their own content and never fetched again.
+  Every URL passes the same blocklist. Pages are cut to about 6,000 tokens.
+- `extract`: Haiku takes notes from each page. A note is kept only if its quote (25 words or fewer) appears in that page after whitespace, case and quote marks are normalised, and its wording adds no number the quote lacks. Notes that mention a person's role (CEO, founder, director, recruiter and similar) are discarded and never stored.
+- `explore` runs only when kinds the plan asked for still have no facts. The AI picks up to 3 actions (search, read a page, look up on Maps, or stop), and the code carries each one out under the same limits.
+- `write`: Sonnet writes only the evidence map, interview stages, questions, things to brush up on, tips and unknowns, as structured output with one retry. The code builds the employer, pay and practical lines from verified facts, each with its quote, and adds the directions link. Facts whose quote failed go to "Could not verify". Evidence that isn't word for word in the resume is marked "check".
+- Budget per run: 4 searches, 6 pages, 3 explore actions, 14 model calls, and US$0.12 estimated from token counts. Other calls stop 2 calls and US$0.05 early, so the pack can always be written. Reaching any limit ends that part of the run and adds a note saying which limit.
+- Monthly limit: 30 runs by default, counted by New Zealand calendar month. At the limit the button returns 409, and approving a job skips the automatic run.
+- Employer facts from a finished pack less than 30 days old are reused for the same company, with ids `r1`, `r2`, and so on. That run skips the home page and Maps. About and news facts that passed the quote check are saved to `company_facts` with confidence `medium`.
+- A link on a blocked site in Extra details is refused with a 400 before anything is queued.
+- A failed run sets the row to `failed` with the error, and waits for Try again. A row left `running` for more than 10 minutes is marked failed, and the `prep` run lock is cleared after 10 minutes.

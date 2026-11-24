@@ -17,6 +17,9 @@ export function useApplicationDecision(id: string) {
         client.invalidateQueries({ queryKey: ["pipeline"] }),
         // Approving starts tailoring, so the Resume review list changes too.
         client.invalidateQueries({ queryKey: ["resume-review"] }),
+        // With deep search switched on, approving also queues a preparation pack.
+        client.invalidateQueries({ queryKey: ["prep", id] }),
+        client.invalidateQueries({ queryKey: ["deep-search"] }),
       ]),
   });
 }

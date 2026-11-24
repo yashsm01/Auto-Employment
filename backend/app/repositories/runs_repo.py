@@ -6,7 +6,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 # A run still "running" after this long was cut off, for example by a restart.
-STALE_AFTER = {"lead": "1 hour", "resume": "10 minutes"}
+STALE_AFTER = {"lead": "1 hour", "resume": "10 minutes", "prep": "10 minutes"}
 
 
 def start(

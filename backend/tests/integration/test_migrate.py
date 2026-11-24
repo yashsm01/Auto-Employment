@@ -72,3 +72,7 @@ def test_application_status_rejects_unknown_values(conn):
             "insert into applications (profile_id, job_id, status) "
             "select p.id, j.id, 'not-a-status' from profiles p, jobs j"
         )
+
+
+def test_migrations_allow_prep_runs(conn):
+    conn.execute("insert into graph_runs (graph, status) values ('prep', 'ok')")

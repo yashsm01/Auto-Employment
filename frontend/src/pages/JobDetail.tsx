@@ -3,9 +3,10 @@ import { Link, useParams } from "react-router-dom";
 
 import type { ApplicationDetail } from "../api/pipeline";
 import { ErrorNotice, ExampleTag } from "../components/Notice";
+import PreparationTab from "../components/PreparationTab";
 import { useApplication, useApplicationDecision } from "../hooks/useApplication";
 
-const TABS = ["Match", "Employer", "Contact history"] as const;
+const TABS = ["Match", "Employer", "Preparation", "Contact history"] as const;
 type Tab = (typeof TABS)[number];
 
 const STATUS_LABELS: Record<string, string> = {
@@ -288,6 +289,7 @@ export default function JobDetail() {
 
       {tab === "Match" && <MatchTab job={job} />}
       {tab === "Employer" && <EmployerTab job={job} />}
+      {tab === "Preparation" && <PreparationTab applicationId={job.id} />}
       {tab === "Contact history" && <HistoryTab job={job} />}
     </>
   );

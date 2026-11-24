@@ -12,6 +12,7 @@ from app.core.errors import Conflict
 from app.db.client import connect
 from app.repositories import profiles_repo, runs_repo
 from app.workers.lead_job import run_lead_search
+from app.workers.prep_job import process_prep_queue
 from app.workers.tailor_job import process_tailoring_queue
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,16 @@ def start_scheduler(settings: Settings) -> BackgroundScheduler | None:
         minutes=15,
         args=[settings],
         id="tailoring-queue",
+        max_instances=1,
+        coalesce=True,
+    )
+    # Picks up deep searches left waiting.
+    scheduler.add_job(
+        process_prep_queue,
+        "interval",
+        minutes=15,
+        args=[settings],
+        id="prep-queue",
         max_instances=1,
         coalesce=True,
     )

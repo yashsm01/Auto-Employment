@@ -191,3 +191,8 @@ def test_website_reader_keeps_the_end_of_a_long_page():
     client = _client(lambda _: httpx.Response(200, text=page))
 
     assert WebsiteReader(client).read("https://example.co.nz/").endswith("[Careers](/careers)")
+
+
+def test_glassdoor_is_blocked():
+    assert not is_allowed_url("https://www.glassdoor.co.nz/Reviews/x")
+    assert not is_allowed_url("https://glassdoor.com/job")

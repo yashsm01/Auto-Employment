@@ -40,6 +40,7 @@ Everything below is optional. Add keys to `backend/.env`, then restart the backe
 | Local employers from Google Maps | `GOOGLE_MAPS_API_KEY`, plus `ANTHROPIC_API_KEY` to read careers pages | No employer websites checked |
 | AI resume reading and scoring | `ANTHROPIC_API_KEY` | Free keyword matching |
 | Tailored resumes and cover notes | `ANTHROPIC_API_KEY` | Your resume as it is, with a short standard cover note |
+| Deep search preparation packs | `ANTHROPIC_API_KEY`, plus `TAVILY_API_KEY` and `GOOGLE_MAPS_API_KEY` for more sources | Not available |
 | Job ranking | `GOOGLE_API_KEY` | Skill matching only |
 | Trade Me jobs | `TRADEME_CONSUMER_KEY` and `TRADEME_CONSUMER_SECRET` | No Trade Me jobs |
 | SEEK, LinkedIn and Indeed alerts | `EMAIL_ENABLED`, `EMAIL_ADDRESS`, `EMAIL_APP_PASSWORD` and `ANTHROPIC_API_KEY` | No alert jobs |
@@ -75,6 +76,54 @@ Your name, email and phone at the top of the PDF come from **My resume profile**
 If tailoring fails, the job shows the error and a **Try again** button. Failed jobs are not retried on their own, so a broken key does not keep using calls. A queue every 15 minutes picks up approved jobs that have not been tried yet, for example after a restart. Approved resumes wait for Phase 3, which adds email sending.
 
 Models are set in `.env`: `RESUME_MODEL` reads your resume into sections, `TAILOR_MODEL` writes the tailored version, and `SCORING_MODEL` runs the fact check.
+
+## Deep search
+
+Deep search researches one job and its employer and writes a **preparation pack**. It shows on the job's **Preparation** tab:
+
+- how each requirement in the advert matches a line from your resume, or a gap
+- the likely interview stages, to confirm with the recruiter
+- a pay range when a source gives one
+- what the employer does and recent news
+- questions to ask
+- things to brush up on
+- practical details
+- application tips
+- what's still unknown
+
+Every employer fact links to the page it came from.
+
+Switch it on under **Deep search** on **My resume profile**. When it's on, it runs each time you approve a job. You can also press **Run deep search** on any job's Preparation tab. In the **Extra details** box you can paste a company or news link, or text from the advert.
+
+What it reads:
+- the job post
+- your extra details
+- the advert page
+- the employer's website and careers page
+- Google Maps, with `GOOGLE_MAPS_API_KEY`
+- web search results, with `TAVILY_API_KEY`
+
+It never opens SEEK, LinkedIn, Indeed, Glassdoor, Trade Me, Facebook or Instagram pages, including links you paste.
+
+Limits:
+- **Per run:** 4 searches, 6 pages, 3 extra steps chosen by the AI when sections are still empty, 14 AI calls, and an estimated US$0.12 ceiling.
+- **Per month:** 30 runs by default, which you can change. A test run cost about NZ$0.04, and each pack shows what it cost.
+- **Google Maps:** at most `MAX_PREP_PLACES_CALLS_PER_MONTH` calls (default 1000).
+
+It checks its own work:
+- Each note the AI takes must quote the page it came from, word for word, in 25 words or fewer, and can't add a number the quote doesn't have. Notes that fail are left out and listed under **Could not verify**.
+- The employer, pay and practical lines are built from those checked notes, each with its quote, so the AI writing the pack can't add claims of its own.
+- A resume line that isn't word for word in your resume is marked **Check this**.
+- Notes that mention roles such as CEO, founder, director or recruiter are discarded, so people's names aren't kept.
+- A link on a blocked site is refused before a run starts.
+
+Employer facts are reused for 30 days for other jobs at the same company. About and news facts are also given to resume tailoring.
+
+Runs wait in a queue and go one at a time. A queue job every 15 minutes picks up any that are waiting. A failed run shows its error and a **Try again** button; it isn't retried on its own. A run cut off by a restart is marked failed after 10 minutes.
+
+Deep search needs `ANTHROPIC_API_KEY`. The models are `PREP_MODEL` (default Haiku), which plans, reads and explores, and `PREP_WRITE_MODEL` (default Sonnet), which writes the pack. `USD_TO_NZD` sets the rate used to show costs.
+
+After updating the code, run `.venv\Scripts\python -m app.db.migrate` once in `backend` to add the deep search table.
 
 ## Project docs
 

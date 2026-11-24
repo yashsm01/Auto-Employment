@@ -23,6 +23,8 @@ _BLOCKED_DOMAINS = (
     "trademe.co.nz",
     "facebook.com",
     "instagram.com",
+    "glassdoor.com",
+    "glassdoor.co.nz",
 )
 
 

@@ -3,6 +3,7 @@ import { useRef, useState, type ChangeEvent } from "react";
 import type { BoardEntry, ProfileUpdate, ProfileView, SkillEntry } from "../api/profile";
 import { describeRun, type RunResponse } from "../api/runs";
 import ChipEditor from "../components/ChipEditor";
+import DeepSearchSettings from "../components/DeepSearchSettings";
 import { ErrorNotice, ExampleTag, SuccessNotice } from "../components/Notice";
 import { useProfile, useSaveProfile, useUploadResume } from "../hooks/useProfile";
 import { useRunSearch } from "../hooks/usePipeline";
@@ -393,6 +394,8 @@ function ProfileForm({ profile, busy, onSave }: FormProps) {
           </div>
         </div>
       </section>
+
+      <DeepSearchSettings />
 
       <section className="card flex flex-col gap-2">
         <h2 className="m-0 font-display text-[17px] font-bold">Connections</h2>

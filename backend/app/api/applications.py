@@ -1,10 +1,12 @@
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks
 
 from app.core.deps import ConnDep, ProfileIdDep, SettingsDep
 from app.schemas.application import ApplicationDetail, DecisionRequest, DecisionResponse
-from app.services import application_service
+from app.services import application_service, prep_service
+from app.workers.prep_job import process_prep_queue
 from app.workers.tailor_job import process_tailoring_queue
 
 router = APIRouter(prefix="/applications", tags=["applications"])
@@ -30,4 +32,8 @@ def decide(
     conn.commit()
     if body.action == "approve":
         background.add_task(process_tailoring_queue, settings)  # tailor the resume next
+        now = datetime.now(UTC)
+        if prep_service.on_approved(conn, profile_id, application_id, settings, now):
+            conn.commit()
+            background.add_task(process_prep_queue, settings)  # and prepare for it
     return result
