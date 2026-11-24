@@ -8,10 +8,11 @@ export function ErrorNotice({ message }: { message: string }) {
   );
 }
 
-export function SuccessNotice({ message }: { message: string }) {
+export function SuccessNotice({ message, children }: { message: string; children?: ReactNode }) {
   return (
     <div role="status" className="rounded-xl bg-ok-soft px-4 py-3 text-sm font-medium text-ok">
       {message}
+      {children}
     </div>
   );
 }

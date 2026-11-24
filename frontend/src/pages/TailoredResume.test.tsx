@@ -1,9 +1,10 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import type { ReviewItem, TailoredResumeView } from "../api/resumes";
+import { useOutbox } from "../hooks/useOutbox";
 import { mockApi, renderPage } from "../test/utils";
 import ResumeReview from "./ResumeReview";
 import TailoredResume from "./TailoredResume";
@@ -138,13 +139,49 @@ describe("TailoredResume", () => {
 
     await user.click(await screen.findByRole("button", { name: "Approve" }));
 
-    expect(await screen.findByText(/Approved\. It will be sent/)).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent(/Approved\. Send it from the Outbox\./);
+    expect(screen.getByRole("link", { name: "Outbox" })).toHaveAttribute("href", "/outbox");
     expect(calls).toContainEqual({
       method: "POST",
       path: "/applications/a1/resume-decision",
       body: { action: "approve" },
     });
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+  });
+
+  it("refreshes the Outbox after approving, so its count is current", async () => {
+    let current = view();
+    const calls = mockApi({
+      "GET /applications/a1/resume": () => ({ body: current }),
+      "GET /outbox": () => ({
+        body: {
+          sending_enabled: false, reading_enabled: false, daily_limit: 15, sent_today: 0,
+          to_send: [], queued: [], failed: [], waiting: [], replied: [],
+        },
+      }),
+      "POST /applications/a1/resume-decision": () => {
+        current = view({ status: "approved" });
+        return { body: { id: "a1", status: "approved" } };
+      },
+    });
+    function OutboxProbe() {
+      useOutbox();
+      return null;
+    }
+    const user = userEvent.setup();
+    renderPage(
+      <>
+        <OutboxProbe />
+        {page}
+      </>,
+      "/jobs/a1/resume",
+    );
+    await user.click(await screen.findByRole("button", { name: "Approve" }));
+    await screen.findByRole("status");
+
+    await waitFor(() =>
+      expect(calls.filter((c) => c.method === "GET" && c.path === "/outbox").length).toBe(2),
+    );
   });
 
   it("rejects the resume", async () => {

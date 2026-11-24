@@ -2,7 +2,7 @@
 
 A personal tool that finds New Zealand jobs, scores them against your resume, researches employers, and tracks each job from shortlist to reply.
 
-**Current state: Phase 2.** It reads your resume, searches, scores, shortlists and researches employers. When you approve a job, it writes a tailored resume and cover note for you to review. It does not send anything to employers yet. Until you add your resume or a job source, it uses clearly labelled example jobs.
+**Current state: Phase 3.** It reads your resume, searches, scores, shortlists and researches employers. When you approve a job, it writes a tailored resume and cover note for you to review. Approved applications go to the Outbox, which can email them from your Gmail and follow up, once you switch sending on. Until you add your resume or a job source, it uses clearly labelled example jobs.
 
 ## Run it locally
 
@@ -124,6 +124,30 @@ Runs wait in a queue and go one at a time. A queue job every 15 minutes picks up
 Deep search needs `ANTHROPIC_API_KEY`. The models are `PREP_MODEL` (default Haiku), which plans, reads and explores, and `PREP_WRITE_MODEL` (default Sonnet), which writes the pack. `USD_TO_NZD` sets the rate used to show costs.
 
 After updating the code, run `.venv\Scripts\python -m app.db.migrate` once in `backend` to add the deep search table.
+
+## Sending applications (Outbox)
+
+After you approve a tailored resume on **Resume review**, it waits under **Ready to apply** on **Outbox and follow-ups**.
+
+- **Queue email** sends the cover note with the tailored PDF attached, from your own Gmail. The address box is filled in when the advert gives one ("send your CV to …") or the employer's public record has one, and you can change it.
+- **I applied on the job site** is for SEEK, LinkedIn and other jobs you apply for on the site. The app tracks the job and reminds you to follow up.
+
+The rules:
+- At most 15 emails a day (change it on the Outbox page). A failed send is retried twice, 15 minutes apart, then shown under **Failed** with **Try again**.
+- With no reply after 5 working days (weekends skipped, public holidays not), a short follow-up is sent in the same email thread. A second follows 5 working days later, and the job closes 5 working days after that.
+- With `EMAIL_ENABLED` set, replies are noticed automatically: any email from that address after you applied marks the job **Replied** and stops follow-ups. You can also press **They replied**, **Stop follow-ups** or **Close**.
+- The Outbox is checked every 15 minutes while the backend is running.
+- An automatic reply such as "out of office" counts as a reply, and a bounced email isn't noticed, so check the Outbox now and then.
+
+**Nothing is sent until you switch it on.** Sending uses the same Gmail app password as reading alerts. Add this to `backend/.env` and restart the backend:
+
+```env
+EMAIL_SEND_ENABLED=true
+```
+
+Sending signs in to `smtp.gmail.com` over TLS, and refuses to sign in to any other server without encryption. `EMAIL_SMTP_HOST` and `EMAIL_SMTP_PORT` change the server.
+
+After updating the code, run `.venv\Scripts\python -m app.db.migrate` once in `backend` to add the Outbox columns.
 
 ## Project docs
 

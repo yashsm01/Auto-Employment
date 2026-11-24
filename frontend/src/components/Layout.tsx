@@ -1,9 +1,10 @@
 import { NavLink, Outlet } from "react-router-dom";
 
+import { useOutbox } from "../hooks/useOutbox";
 import { useReviewList } from "../hooks/useResumes";
 import { useShortlist } from "../hooks/useShortlist";
 
-const LATER = ["Outbox and follow-ups", "Settings"];
+const LATER = ["Settings"];
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   `flex min-h-11 flex-1 items-center justify-between gap-2 rounded-lg px-3 text-sm font-medium no-underline md:flex-none ${
@@ -15,6 +16,13 @@ export default function Layout() {
   const count = shortlist.data?.items.length;
   const review = useReviewList();
   const readyCount = review.data?.items.filter((item) => item.status === "ready").length;
+  const outbox = useOutbox();
+  // Things waiting for you: applications to send, failed emails and follow-ups due.
+  const outboxCount = outbox.data
+    ? outbox.data.to_send.length +
+      outbox.data.failed.length +
+      outbox.data.waiting.filter((item) => item.follow_up_due).length
+    : undefined;
 
   return (
     <div className="flex min-h-screen flex-col bg-page md:flex-row">
@@ -41,6 +49,12 @@ export default function Layout() {
           Resume review
           {readyCount !== undefined && readyCount > 0 && (
             <span className="rounded-full bg-navy-light px-2 text-xs text-white">{readyCount}</span>
+          )}
+        </NavLink>
+        <NavLink to="/outbox" className={linkClass}>
+          Outbox and follow-ups
+          {outboxCount !== undefined && outboxCount > 0 && (
+            <span className="rounded-full bg-navy-light px-2 text-xs text-white">{outboxCount}</span>
           )}
         </NavLink>
         <NavLink to="/employers" className={linkClass}>

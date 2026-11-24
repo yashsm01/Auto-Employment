@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     email_address: str = ""
     email_app_password: SecretStr = SecretStr("")
     email_imap_host: str = "imap.gmail.com"
+    # Sending applications. Off until the user switches it on in backend/.env.
+    email_send_enabled: bool = False
+    email_smtp_host: str = "smtp.gmail.com"
+    email_smtp_port: int = 465
     gmail_alert_query: str = (
         "newer_than:3d (from:seek OR from:linkedin OR from:indeed OR subject:(job alert))"
     )

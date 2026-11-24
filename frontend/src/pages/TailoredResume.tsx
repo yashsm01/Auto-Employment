@@ -174,7 +174,12 @@ export default function TailoredResume() {
 
       {problem && <ErrorNotice message={problem.message} />}
       {view.status === "approved" && (
-        <SuccessNotice message="Approved. It will be sent once email sending is added in Phase 3." />
+        <SuccessNotice message="Approved. Send it from the ">
+          <Link to="/outbox" className="font-semibold text-ok underline">
+            Outbox
+          </Link>
+          .
+        </SuccessNotice>
       )}
       {view.status === "closed" && <InfoNotice message="Rejected. This job is closed." />}
       {view.status === "tailoring" &&

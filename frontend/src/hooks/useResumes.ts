@@ -36,8 +36,9 @@ function useRefresh(id: string) {
   const client = useQueryClient();
   return () =>
     Promise.all(
-      [["tailored", id], ["resume-review"], ["pipeline"], ["application", id]].map((queryKey) =>
-        client.invalidateQueries({ queryKey }),
+      // An approved resume moves to the Outbox, so its list and nav count change too.
+      [["tailored", id], ["resume-review"], ["pipeline"], ["application", id], ["outbox"]].map(
+        (queryKey) => client.invalidateQueries({ queryKey }),
       ),
     );
 }

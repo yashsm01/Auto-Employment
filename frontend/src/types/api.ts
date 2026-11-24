@@ -298,6 +298,125 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/outbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Outbox */
+        get: operations["get_outbox_outbox_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/outbox/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save Outbox Settings */
+        put: operations["save_outbox_settings_outbox_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_id}/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send Application */
+        post: operations["send_application_applications__application_id__send_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_id}/applied": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Applied Myself */
+        post: operations["applied_myself_applications__application_id__applied_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_id}/outcome": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Application Outcome */
+        post: operations["application_outcome_applications__application_id__outcome_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/outbox/{outbox_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Email */
+        post: operations["cancel_email_outbox__outbox_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/outbox/{outbox_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Email */
+        post: operations["retry_email_outbox__outbox_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs/lead": {
         parameters: {
             query?: never;
@@ -502,6 +621,25 @@ export interface components {
             /** Available */
             available: boolean;
         };
+        /** DoneItem */
+        DoneItem: {
+            /**
+             * Application Id
+             * Format: uuid
+             */
+            application_id: string;
+            /** Title */
+            title: string;
+            /** Company */
+            company: string;
+            /** Status */
+            status: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /** EmployerDetail */
         EmployerDetail: {
             /** Name */
@@ -585,6 +723,75 @@ export interface components {
             business: string;
             /** Town */
             town: string;
+        };
+        /** OutboxItem */
+        OutboxItem: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Application Id
+             * Format: uuid
+             */
+            application_id: string;
+            /** Title */
+            title: string;
+            /** Company */
+            company: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "application" | "follow_up";
+            /** To */
+            to: string;
+            /** Subject */
+            subject: string;
+            /**
+             * Scheduled At
+             * Format: date-time
+             */
+            scheduled_at: string;
+            /** Attempts */
+            attempts: number;
+            /** Error */
+            error?: string | null;
+        };
+        /** OutboxSettings */
+        OutboxSettings: {
+            /** Daily Send Limit */
+            daily_send_limit: number;
+        };
+        /** OutboxView */
+        OutboxView: {
+            /** Sending Enabled */
+            sending_enabled: boolean;
+            /** Reading Enabled */
+            reading_enabled: boolean;
+            /** Daily Limit */
+            daily_limit: number;
+            /** Sent Today */
+            sent_today: number;
+            /** To Send */
+            to_send: components["schemas"]["ToSendItem"][];
+            /** Queued */
+            queued: components["schemas"]["OutboxItem"][];
+            /** Failed */
+            failed: components["schemas"]["OutboxItem"][];
+            /** Waiting */
+            waiting: components["schemas"]["WaitingItem"][];
+            /** Replied */
+            replied: components["schemas"]["DoneItem"][];
+        };
+        /** OutcomeRequest */
+        OutcomeRequest: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "replied" | "closed" | "followed_up" | "stop_follow_ups";
         };
         /** Pipeline */
         Pipeline: {
@@ -837,6 +1044,11 @@ export interface components {
             /** Items */
             items: components["schemas"]["SavedEmployer"][];
         };
+        /** SendRequest */
+        SendRequest: {
+            /** To */
+            to: string;
+        };
         /** Shortlist */
         Shortlist: {
             /** Items */
@@ -983,6 +1195,29 @@ export interface components {
              */
             created_at: string;
         };
+        /** ToSendItem */
+        ToSendItem: {
+            /**
+             * Application Id
+             * Format: uuid
+             */
+            application_id: string;
+            /** Title */
+            title: string;
+            /** Company */
+            company: string;
+            /** Suggested To */
+            suggested_to?: string | null;
+            /** Job Url */
+            job_url?: string | null;
+            /** Pdf Url */
+            pdf_url?: string | null;
+            /**
+             * Cover Note
+             * @default
+             */
+            cover_note: string;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -995,6 +1230,35 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WaitingItem */
+        WaitingItem: {
+            /**
+             * Application Id
+             * Format: uuid
+             */
+            application_id: string;
+            /** Title */
+            title: string;
+            /** Company */
+            company: string;
+            /**
+             * Apply Method
+             * @enum {string}
+             */
+            apply_method: "email" | "manual";
+            /** To */
+            to?: string | null;
+            /** Applied At */
+            applied_at?: string | null;
+            /** Follow Ups */
+            follow_ups: number;
+            /** Next Follow Up */
+            next_follow_up?: string | null;
+            /** Follow Up Due */
+            follow_up_due: boolean;
+            /** Job Url */
+            job_url?: string | null;
         };
     };
     responses: never;
@@ -1627,6 +1891,222 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PrepView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_outbox_outbox_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxView"];
+                };
+            };
+        };
+    };
+    save_outbox_settings_outbox_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OutboxSettings"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_application_applications__application_id__send_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    applied_myself_applications__application_id__applied_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    application_outcome_applications__application_id__outcome_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OutcomeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_email_outbox__outbox_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                outbox_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_email_outbox__outbox_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                outbox_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxView"];
                 };
             };
             /** @description Validation Error */

@@ -4,6 +4,7 @@ import Layout from "./components/Layout";
 import Employers from "./pages/Employers";
 import JobDetail from "./pages/JobDetail";
 import Pipeline from "./pages/Pipeline";
+import Outbox from "./pages/Outbox";
 import Profile from "./pages/Profile";
 import ResumeReview from "./pages/ResumeReview";
 import Shortlist from "./pages/Shortlist";
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="jobs/:id" element={<JobDetail />} />
         <Route path="jobs/:id/resume" element={<TailoredResume />} />
         <Route path="resumes" element={<ResumeReview />} />
+        <Route path="outbox" element={<Outbox />} />
         <Route path="profile" element={<Profile />} />
         <Route path="employers" element={<Employers />} />
         <Route path="*" element={<Navigate to="/" replace />} />
