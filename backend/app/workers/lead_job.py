@@ -15,7 +15,13 @@ from app.graphs.runner import GraphRunResult, run_graph
 from app.providers.jobs.employer_sites import EmployerSitesSource
 from app.providers.llm.factory import build_embedder
 from app.repositories import profiles_repo
-from app.services import application_service, employer_service, lead_service, source_service
+from app.services import (
+    application_service,
+    employer_service,
+    lead_service,
+    notify_service,
+    source_service,
+)
 from app.services.resume_service import connections
 
 SOURCE_TIMEOUT_SECONDS = 20
@@ -86,6 +92,14 @@ def run_lead_search(
         result = run_graph("lead", {"profile_id": str(profile_id)}, deps)
 
         if result.status == "ok":
+            shortlisted = result.output.get("shortlisted", 0)
+            if shortlisted:
+                notify_service.notify(
+                    conn, settings, profile_id, "shortlist",
+                    f"{shortlisted} new job{'s' if shortlisted > 1 else ''} shortlisted. "
+                    "Open the Shortlist to review.",
+                    f"shortlist:{result.id}",
+                )
             for source in sources:
                 if isinstance(source, EmployerSitesSource) and source.checked:
                     employer_service.mark_checked(conn, profile_id, source.checked, now)

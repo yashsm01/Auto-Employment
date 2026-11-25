@@ -226,8 +226,11 @@ def awaiting_reply(conn: psycopg.Connection) -> list[dict[str, Any]]:
     """Emailed applications with no reply yet, and the address they went to."""
     return conn.execute(
         """
-        select a.id, a.profile_id, a.applied_at, o.to_address
+        select a.id, a.profile_id, a.applied_at, o.to_address, j.title,
+               coalesce(c.name, 'The employer') as company
         from applications a
+        join jobs j on j.id = a.job_id
+        left join companies c on c.id = j.company_id
         join lateral (
             select to_address from outbox
             where application_id = a.id and kind = 'application' and status = 'sent'
@@ -308,4 +311,17 @@ def replied_rows(conn: psycopg.Connection, profile_id: UUID | str) -> list[dict[
         limit 20
         """,
         (profile_id,),
+    ).fetchall()
+
+
+def manual_follow_ups_due(conn: psycopg.Connection, today: date) -> list[dict[str, Any]]:
+    return conn.execute(
+        f"""
+        select a.id, a.profile_id, a.next_follow_up, j.title,
+               coalesce(c.name, 'the employer') as company
+        {_JOB}
+        where a.apply_method = 'manual' and a.status in ('sent', 'followed_up')
+          and a.next_follow_up is not null and a.next_follow_up <= %s
+        """,
+        (today,),
     ).fetchall()

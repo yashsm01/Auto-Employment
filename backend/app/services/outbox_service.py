@@ -13,7 +13,7 @@ from app.core.documents import extract_contact_details
 from app.core.emails import find_emails, is_valid_email
 from app.core.errors import BadRequest, Conflict, NotFound
 from app.core.workdays import add_working_days, nz_day_start, nz_today
-from app.repositories import events_repo, outbox_repo, resumes_repo
+from app.repositories import calls_repo, events_repo, outbox_repo, resumes_repo
 from app.schemas.outbox import DoneItem, OutboxItem, OutboxView, ToSendItem, WaitingItem
 from app.services import resume_review_service
 from app.services.application_service import safe_url
@@ -23,6 +23,11 @@ MAX_ATTEMPTS = 3
 RETRY_AFTER = timedelta(minutes=15)
 FOLLOW_UP_WORKING_DAYS = 5
 MAX_FOLLOW_UPS = 2
+CANCELLED_BY = {
+    "replied": "Cancelled: the employer replied.",
+    "closed": "Cancelled: you closed the job.",
+    "stop_follow_ups": "Cancelled: you stopped follow-ups.",
+}
 _FILE_UNSAFE = re.compile(r'[\\/:*?"<>|]+')
 
 
@@ -145,6 +150,7 @@ def record_outcome(conn: psycopg.Connection, profile_id: UUID | str,
                 raise Conflict(f"This job is {status}.")
             outbox_repo.cancel_pending_follow_ups(conn, application_id)
             outbox_repo.set_outcome(conn, application_id, action)
+            calls_repo.cancel_queued(conn, application_id, CANCELLED_BY[action])
             if action == "replied":
                 events_repo.add(conn, "replied", application_id=application_id,
                                 payload={"text": "Marked as replied"})
@@ -157,6 +163,7 @@ def record_outcome(conn: psycopg.Connection, profile_id: UUID | str,
         if action == "stop_follow_ups":
             outbox_repo.cancel_pending_follow_ups(conn, application_id)
             outbox_repo.stop_follow_ups(conn, application_id)
+            calls_repo.cancel_queued(conn, application_id, CANCELLED_BY[action])
             return
         count = row["follow_ups"] + 1
         next_date = (
@@ -218,6 +225,9 @@ def view(conn: psycopg.Connection, profile_id: UUID | str, settings: Settings,
         )
         for row in outbox_repo.to_send_rows(conn, profile_id)
     ]
+    from app.services.calls_service import latest_calls
+
+    calls = latest_calls(conn)
     waiting = [
         WaitingItem(
             application_id=row["id"], title=row["title"], company=row["company"],
@@ -226,6 +236,10 @@ def view(conn: psycopg.Connection, profile_id: UUID | str, settings: Settings,
             next_follow_up=row["next_follow_up"],
             follow_up_due=bool(row["next_follow_up"] and row["next_follow_up"] <= today),
             job_url=safe_url(row["url"]),
+            call_status=calls.get(str(row["id"]), {}).get("status"),
+            captured_email=(calls.get(str(row["id"]), {}).get("extracted") or {}).get(
+                "captured_email"
+            ),
         )
         for row in outbox_repo.waiting_rows(conn, profile_id)
     ]

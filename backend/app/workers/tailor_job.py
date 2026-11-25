@@ -12,6 +12,7 @@ from app.db.client import connect
 from app.graphs.resume.deps import ResumeDeps
 from app.graphs.runner import run_graph
 from app.repositories import applications_repo
+from app.services import notify_service
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,17 @@ def _deps(settings: Settings, conn: psycopg.Connection) -> ResumeDeps:
         upload_dir=settings.upload_dir,
         now=datetime.now(UTC),
     )
+
+
+def _notify_ready(conn: psycopg.Connection, settings: Settings, application_id: str) -> None:
+    label = notify_service.job_label(conn, application_id)
+    if label:
+        notify_service.notify(
+            conn, settings, label["profile_id"], "resume_ready",
+            f"Tailored resume ready for review: {label['title']} at {label['company']}.",
+            f"ready:{application_id}:{datetime.now(UTC).date()}",
+        )
+        conn.commit()
 
 
 def tailor_one(settings: Settings, application_id: str) -> None:
@@ -56,7 +68,11 @@ def process_tailoring_queue(settings: Settings, only_untried: bool = True) -> in
                 application_id = str(row["id"])
                 attempted.append(application_id)
                 try:
-                    run_graph("resume", {"application_id": application_id}, _deps(settings, conn))
+                    result = run_graph(
+                        "resume", {"application_id": application_id}, _deps(settings, conn)
+                    )
+                    if result.status == "ok":
+                        _notify_ready(conn, settings, application_id)
                 except Conflict:
                     attempted.pop()
                     break  # another worker is running and will continue the queue

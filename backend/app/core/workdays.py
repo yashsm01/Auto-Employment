@@ -23,3 +23,10 @@ def add_working_days(start: date, days: int) -> date:
         if current.weekday() < 5:
             added += 1
     return current
+
+
+def in_nz_business_hours(now: datetime) -> bool:
+    """Monday to Friday, 9:30 to 4:30 New Zealand time."""
+    local = now.astimezone(NZ_TIME)
+    minutes = local.hour * 60 + local.minute
+    return local.weekday() < 5 and 9 * 60 + 30 <= minutes < 16 * 60 + 30

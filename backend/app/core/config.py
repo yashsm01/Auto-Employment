@@ -18,6 +18,8 @@ _PROJECT_FILE_ONLY = {
     "google_api_key",
     "tavily_api_key",
     "google_maps_api_key",
+    "omnidim_api_key",
+    "whatsapp_service_token",
 }
 
 
@@ -79,6 +81,20 @@ class Settings(BaseSettings):
     email_send_enabled: bool = False
     email_smtp_host: str = "smtp.gmail.com"
     email_smtp_port: int = 465
+    # Phase 4: AI phone calls (OmniDimension) after two unanswered follow-ups.
+    calls_enabled: bool = False
+    omnidim_api_key: SecretStr = SecretStr("")
+    omnidim_agent_id: int | None = None
+    omnidim_from_number_id: int | None = None
+    omnidim_base_url: str = "https://omnidim.io/api/v1"
+    max_calls_per_month: int = 5
+    # Phase 4: WhatsApp updates to the user, through their own WhatsApp service.
+    whatsapp_enabled: bool = False
+    whatsapp_service_url: str = ""
+    whatsapp_service_token: SecretStr = SecretStr("")
+    whatsapp_to: str = ""
+    whatsapp_to_field: str = "to"
+    whatsapp_text_field: str = "message"
     gmail_alert_query: str = (
         "newer_than:3d (from:seek OR from:linkedin OR from:indeed OR subject:(job alert))"
     )

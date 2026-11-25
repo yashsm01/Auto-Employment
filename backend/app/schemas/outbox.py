@@ -34,7 +34,7 @@ class OutboxItem(BaseModel):
     application_id: UUID
     title: str
     company: str
-    kind: Literal["application", "follow_up"]
+    kind: Literal["application", "follow_up", "after_call"]
     to: str
     subject: str
     scheduled_at: datetime
@@ -53,6 +53,8 @@ class WaitingItem(BaseModel):
     next_follow_up: date | None = None
     follow_up_due: bool
     job_url: str | None = None
+    call_status: str | None = None
+    captured_email: str | None = None
 
 
 class DoneItem(BaseModel):
