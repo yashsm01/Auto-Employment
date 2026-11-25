@@ -16,6 +16,15 @@ async function errorDetail(response: Response): Promise<string> {
   try {
     const body = await response.json();
     if (typeof body.detail === "string") return body.detail;
+    // A rejected request lists each field and what was wrong with it.
+    if (Array.isArray(body.detail) && body.detail.length > 0) {
+      return body.detail
+        .map((item: { loc?: unknown[]; msg?: string }) => {
+          const field = (item.loc ?? []).filter((part) => part !== "body").join(".");
+          return field ? `${field}: ${item.msg}` : (item.msg ?? "");
+        })
+        .join("; ");
+    }
   } catch {
     // The server did not send JSON, so use the generic message below.
   }

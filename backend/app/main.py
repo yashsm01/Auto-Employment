@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.api import (
     applications,
+    auto,
     calls,
     employers,
     outbox,
@@ -71,6 +72,7 @@ def create_app(run_scheduler: bool = False) -> FastAPI:
     app.include_router(prep.router)
     app.include_router(outbox.router)
     app.include_router(calls.router)
+    app.include_router(auto.router)
     app.include_router(runs.router)
     return app
 

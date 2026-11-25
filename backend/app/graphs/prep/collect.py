@@ -71,6 +71,8 @@ def place_page(deps: PrepDeps, pages: list[PageSource], name: str, town: str,
                counter: dict[str, int]) -> PageSource | None:
     if deps.places is None or not deps.places_allowed:
         return None
+    if deps.places_remaining is not None and counter["places_calls"] >= deps.places_remaining:
+        return None
     counter["places_calls"] += 1
     try:
         match = deps.places.find(name, town)

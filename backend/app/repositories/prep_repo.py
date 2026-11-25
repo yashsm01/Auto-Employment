@@ -59,16 +59,19 @@ def next_queued(conn: psycopg.Connection, skip: list[str]) -> dict[str, Any] | N
         where status = 'queued' and id <> all(%s::uuid[])
         order by created_at, id
         limit 1
+        for update skip locked
         """,
         (skip,),
     ).fetchone()
 
 
-def mark_running(conn: psycopg.Connection, pack_id: UUID | str) -> None:
-    conn.execute(
-        "update prep_packs set status = 'running', started_at = now() where id = %s",
+def mark_running(conn: psycopg.Connection, pack_id: UUID | str) -> bool:
+    """Claim a queued pack. False if another worker already took it."""
+    return conn.execute(
+        "update prep_packs set status = 'running', started_at = now() "
+        "where id = %s and status = 'queued'",
         (pack_id,),
-    )
+    ).rowcount == 1
 
 
 def finish(
@@ -119,7 +122,8 @@ def latest_for_application(
 
 def count_since(conn: psycopg.Connection, profile_id: UUID | str, since: datetime) -> int:
     return conn.execute(
-        "select count(*) as n from prep_packs where profile_id = %s and created_at >= %s",
+        "select count(*) as n from prep_packs where profile_id = %s and created_at >= %s "
+        "and not (status = 'failed' and cost_usd = 0)",
         (profile_id, since),
     ).fetchone()["n"]
 

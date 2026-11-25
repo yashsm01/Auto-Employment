@@ -123,6 +123,47 @@ Deep search is an addition to the original plan. It researches one job and saves
   2. **Follow-ups**: an emailed application whose `next_follow_up` has arrived gets a follow-up `outbox` row, replying in the same thread (`In-Reply-To` the first email). After two follow-ups, the next due date closes the job instead.
   3. **Sending**, only with `EMAIL_SEND_ENABLED=true`: due rows go oldest first while today's count (NZ day) is under the daily limit. A sent application moves to `sent`, a sent follow-up to `followed_up`, and the next follow-up date is 5 working days later. A failure is retried 15 minutes later, and becomes `failed` after 3 tries. A refused app password stops the run.
 - Cancelling a queued application email returns the job to "Ready to apply". Cancelling a follow-up stops follow-ups for that job.
-- Working days skip Saturdays and Sundays. NZ public holidays are not skipped.
+- Working days skip weekends and national NZ public holidays (Mondayised where the Holidays Act says so, Easter, King's Birthday, Labour Day and Matariki). Regional anniversary days are not skipped. Calls also wait for working days.
 - Only one outbox run happens at a time (a database advisory lock), so an email is never sent twice. Job titles are put on one line before they go into a subject or file name.
-- Known limits: an automatic reply (for example "out of office") counts as a reply, and a bounced email is not detected.
+- **Replies:** a reply counts only if at least one matching email is not automatic. Auto-Submitted, X-Autoreply, Precedence auto_reply, bulk or junk, or an "Automatic reply" or "Out of office" subject marks it as automatic.
+- **Bounces:** checked before replies with the search `from:(mailer-daemon OR postmaster) after:{date} "{address}"`. A bounce marks the email `failed` ("Bounced: … does not accept email."), cancels follow-ups and any queued call, returns the job to `approved` with no `apply_method` (so it shows under "Ready to apply"), and sends a WhatsApp update.
+
+## Calls and WhatsApp rules in Phase 4
+
+- **When a call is made:** an emailed application reaches its closing date after two follow-ups with no reply. With `CALLS_ENABLED`, an OmniDimension key and an agent ID, the app tries a call before closing the job. It queues a `calls` row (`purpose = follow_up`) to the employer's published number, `companies.phone` first, then `company_facts` field `phone`, converted to +64, and stops further follow-ups. It doesn't queue a call when:
+  - there is no usable number,
+  - the job already had a call, or
+  - the month's limit (`MAX_CALLS_PER_MONTH`, NZ month) is reached.
+
+  In those cases the job closes as before.
+- **Each outbox run** (15 minutes, one at a time) does three things:
+  1. It fetches results for calls that are ringing. It reads `/calls/logs` for the agent and matches `metadata.app_call_id`.
+     - It saves the status, duration, transcript and extracted variables.
+     - An email address given on the call is kept as `captured_email`: the extracted `contact_email` first, otherwise the first address found in the transcript.
+     - `completed` becomes `done`. Voicemail, busy, no answer, or no record after 2 hours becomes `failed`.
+  2. It dispatches queued calls, only Monday to Friday, 9:30 to 4:30 NZ time.
+  3. It delivers WhatsApp updates.
+- **What each call carries:** `call_context` holds the candidate name and email, job title, company, applied date and summary. `metadata.app_call_id` links the call to its result. With `EMAIL_ADDRESS` set, `__post_call_actions.email` emails the user a summary and extracts `contact_email`.
+- **Cancelling a call:** a call that hasn't been made yet is cancelled when a reply is detected, or when you press They replied, Close or Stop follow-ups.
+- **Email after a call:** "Email my resume to …" queues an `outbox` row (`kind = after_call`) with the cover-letter text and the tailored PDF. It doesn't change the job's status.
+- **WhatsApp:** updates go only to `WHATSAPP_TO`, through the user's own WhatsApp service. A `dedupe_key` means each event is sent once, and an update is retried up to 3 times. Updates are stored only when WhatsApp is switched on.
+- **Test buttons:** "Test call to my phone" calls the number under "Your details for resumes", and counts toward the monthly limit. "Send me a test WhatsApp" sends one message straight away.
+
+## Auto mode rules in Phase 5
+
+- **Settings:** stored in `profiles.auto_mode` (on/off) and `settings.ai.auto` (`min_score` 0–100, default 80; `daily_limit` 0–20, default 5). It's off by default.
+- **When it runs:** first in every outbox run, under the same lock, before replies, follow-ups, sending and calls. It skips any profile that is switched off or has no uploaded resume of its own.
+- **Jobs:** shortlisted jobs with `score >= min_score` from real sources (never `example`), best score first, up to `daily_limit` per NZ day (counted by `applications.auto_approved_at`). Each is approved through the normal decision (feedback row, `approved` event), marked `auto_approved_at`, noted "Approved by auto mode", and passed to deep search's approval hook.
+- **Resumes:** status `ready` and `auto_approved_at` set → the resume is approved through the normal review decision. Resumes for jobs the user approved by hand are never approved automatically.
+- **Emails:** for auto-approved jobs that are `approved` with no `apply_method`, the suggested address (from the advert, then the employer's public record) is queued with `queue_email`. With no address, the job stays in "Ready to apply" and a one-time WhatsApp update says to apply on the job site.
+- **Not affected by auto mode:** the email send switch, the daily send limit, follow-ups, reply detection, AI calls and their monthly limit, and the WhatsApp settings all apply unchanged.
+
+## WhatsApp Web link
+
+- `whatsapp-service/` is a small Node service using Baileys 6.7.24. It listens only on `127.0.0.1:3010` (`WA_PORT`) and has three routes:
+  - `GET /status` returns `{state, qr, me, error}`. `state` is one of `starting`, `qr`, `connected`, `reconnecting`, `logged_out` or `error`, and `qr` is a PNG data URL.
+  - `POST /send` takes `{to, message}`.
+  - `POST /logout` unlinks.
+- `/send` only messages the linked account's own number, or the numbers in `WA_ALLOWED_TO`. Before linking it answers 503.
+- When the phone unlinks, the session in `whatsapp-service/auth/` is deleted and a new QR code is shown.
+- The backend calls the same address as `WHATSAPP_SERVICE_URL` (default `http://127.0.0.1:3010/send`), plus `/status` and `/logout`. Settings › WhatsApp checks `/whatsapp/status` every 3 seconds until linked. If the service isn't running, it shows `offline` and says how to start it.

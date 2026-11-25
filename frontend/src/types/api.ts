@@ -417,6 +417,129 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/settings/phase4": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Phase4 Settings */
+        get: operations["phase4_settings_settings_phase4_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calls/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Call */
+        post: operations["test_call_calls_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Whatsapp */
+        post: operations["test_whatsapp_notifications_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/whatsapp/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whatsapp Status
+         * @description The WhatsApp Web link: a QR code to scan, connected, or the service isn't running.
+         */
+        get: operations["whatsapp_status_whatsapp_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/whatsapp/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Whatsapp Logout */
+        post: operations["whatsapp_logout_whatsapp_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_id}/send-after-call": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send After Call */
+        post: operations["send_after_call_applications__application_id__send_after_call_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auto-mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Auto Mode */
+        get: operations["get_auto_mode_auto_mode_get"];
+        /** Save Auto Mode */
+        put: operations["save_auto_mode_auto_mode_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs/lead": {
         parameters: {
             query?: never;
@@ -476,6 +599,48 @@ export interface components {
             employer: components["schemas"]["EmployerDetail"];
             /** Timeline */
             timeline: components["schemas"]["TimelineEvent"][];
+        };
+        /** AutoModeSettings */
+        AutoModeSettings: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Min Score
+             * @default 80
+             */
+            min_score: number;
+            /**
+             * Daily Limit
+             * @default 5
+             */
+            daily_limit: number;
+        };
+        /** AutoModeView */
+        AutoModeView: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Min Score
+             * @default 80
+             */
+            min_score: number;
+            /**
+             * Daily Limit
+             * @default 5
+             */
+            daily_limit: number;
+            /** Approved Today */
+            approved_today: number;
+            /** Sending Enabled */
+            sending_enabled: boolean;
+            /** Calls Enabled */
+            calls_enabled: boolean;
         };
         /**
          * BaseSections
@@ -553,6 +718,46 @@ export interface components {
             id: string;
             /** Text */
             text: string;
+        };
+        /** CallItem */
+        CallItem: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Purpose */
+            purpose: string;
+            /** Status */
+            status: string;
+            /** Title */
+            title?: string | null;
+            /** Company */
+            company?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Duration Sec */
+            duration_sec?: number | null;
+            /** Captured Email */
+            captured_email?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Transcript */
+            transcript?: string | null;
+        };
+        /** CallsStatus */
+        CallsStatus: {
+            /** Configured */
+            configured: boolean;
+            /** Enabled */
+            enabled: boolean;
+            /** Used This Month */
+            used_this_month: number;
+            /** Monthly Limit */
+            monthly_limit: number;
         };
         /**
          * ContactDetails
@@ -744,7 +949,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "application" | "follow_up";
+            kind: "application" | "follow_up" | "after_call";
             /** To */
             to: string;
             /** Subject */
@@ -792,6 +997,13 @@ export interface components {
              * @enum {string}
              */
             action: "replied" | "closed" | "followed_up" | "stop_follow_ups";
+        };
+        /** Phase4View */
+        Phase4View: {
+            calls: components["schemas"]["CallsStatus"];
+            whatsapp: components["schemas"]["WhatsAppStatus"];
+            /** Recent Calls */
+            recent_calls?: components["schemas"]["CallItem"][];
         };
         /** Pipeline */
         Pipeline: {
@@ -1259,6 +1471,28 @@ export interface components {
             follow_up_due: boolean;
             /** Job Url */
             job_url?: string | null;
+            /** Call Status */
+            call_status?: string | null;
+            /** Captured Email */
+            captured_email?: string | null;
+        };
+        /** WhatsAppLink */
+        WhatsAppLink: {
+            /** State */
+            state: string;
+            /** Qr */
+            qr?: string | null;
+            /** Me */
+            me?: string | null;
+            /** Error */
+            error?: string | null;
+        };
+        /** WhatsAppStatus */
+        WhatsAppStatus: {
+            /** Configured */
+            configured: boolean;
+            /** To */
+            to?: string | null;
         };
     };
     responses: never;
@@ -2107,6 +2341,194 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OutboxView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    phase4_settings_settings_phase4_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Phase4View"];
+                };
+            };
+        };
+    };
+    test_call_calls_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Phase4View"];
+                };
+            };
+        };
+    };
+    test_whatsapp_notifications_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Phase4View"];
+                };
+            };
+        };
+    };
+    whatsapp_status_whatsapp_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppLink"];
+                };
+            };
+        };
+    };
+    whatsapp_logout_whatsapp_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppLink"];
+                };
+            };
+        };
+    };
+    send_after_call_applications__application_id__send_after_call_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_auto_mode_auto_mode_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoModeView"];
+                };
+            };
+        };
+    };
+    save_auto_mode_auto_mode_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoModeSettings"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoModeView"];
                 };
             };
             /** @description Validation Error */

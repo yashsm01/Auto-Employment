@@ -232,3 +232,11 @@ def test_directions_link_encodes_places():
 
 def test_cost_is_shown_in_nzd_to_two_places():
     assert cost_nzd(0.0431, 1.70) == 0.07
+
+
+def test_quotes_match_across_markdown_links_and_bold():
+    pages = {"s1": page("s1", "We **build** [port software](https://x.example/p) for _NZ_ ports.")}
+
+    kept, _ = verify_facts([fact("s1", "We build port software for NZ ports")], pages)
+
+    assert len(kept) == 1

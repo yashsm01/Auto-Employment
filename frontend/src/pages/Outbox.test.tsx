@@ -147,6 +147,45 @@ describe("Outbox", () => {
     );
   });
 
+  it("shows the AI call result and emails the resume to the address given", async () => {
+    const current = view({
+      to_send: [],
+      waiting: [
+        {
+          application_id: "a3",
+          title: "Data Engineer",
+          company: "Example Freight Tech",
+          apply_method: "email",
+          to: "jobs@example.co.nz",
+          applied_at: "2026-11-03T08:00:00Z",
+          follow_ups: 2,
+          next_follow_up: null,
+          follow_up_due: false,
+          job_url: null,
+          call_status: "done",
+          captured_email: "hr@freight.example",
+        },
+      ],
+    });
+    const calls = mockApi({
+      "GET /outbox": () => ({ body: current }),
+      "POST /applications/a3/send-after-call": () => ({ body: current }),
+    });
+    renderPage(<Outbox />);
+
+    const waiting = await screen.findByRole("region", { name: "Waiting for a reply" });
+    expect(within(waiting).getByText(/AI call: completed/)).toBeInTheDocument();
+    await userEvent.click(
+      within(waiting).getByRole("button", { name: "Email my resume to hr@freight.example" }),
+    );
+
+    await waitFor(() =>
+      expect(findCall(calls, "/applications/a3/send-after-call")?.body).toEqual({
+        to: "hr@freight.example",
+      }),
+    );
+  });
+
   it("saves the daily limit", async () => {
     const calls = mockApi({
       "GET /outbox": () => ({ body: view() }),

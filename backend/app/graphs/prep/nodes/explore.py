@@ -1,3 +1,5 @@
+from urllib.parse import urlsplit
+
 from langchain_core.runnables import RunnableConfig
 
 from app.core.errors import ProviderError
@@ -8,6 +10,19 @@ from app.schemas.prep import ExploreStep
 from app.services.prep_service import call_model, missing_kinds
 
 RESULTS_PER_SEARCH = 2
+
+
+def _host(url: str | None) -> str:
+    try:
+        return (urlsplit(url or "").hostname or "").removeprefix("www.")
+    except ValueError:
+        return ""
+
+
+def _may_read(url: str, pages: list, website: str | None) -> bool:
+    """Only the full page of a listed source, or a page on the employer's own site."""
+    listed = {page.url for page in pages if page.url}
+    return url in listed or (bool(website) and _host(url) == _host(website))
 
 
 def run(state: PrepState, config: RunnableConfig) -> PrepState:
@@ -42,7 +57,10 @@ def run(state: PrepState, config: RunnableConfig) -> PrepState:
         if step.action == "search":
             search_pages(deps, pages, notes, argument, limit=RESULTS_PER_SEARCH)
         elif step.action == "read":
-            read_page(deps, pages, notes, argument, argument, "website")
+            if _may_read(argument, pages, state.get("website")):
+                read_page(deps, pages, notes, argument, argument, "website")
+            else:
+                notes.append(f"Skipped a page that was not in the sources: {argument}")
         elif step.action == "place":
             name, _, town = argument.partition(",")
             place_page(deps, pages, name.strip() or employer, town.strip(), counter)

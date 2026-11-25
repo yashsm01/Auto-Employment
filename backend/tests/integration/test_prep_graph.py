@@ -118,7 +118,8 @@ def _setup(conn, *, description="Build pipelines with Python.", website=None, ur
 
 
 def _deps(conn, *, plan, extracts=(), explores=(), write=None, reader=None, search=None,
-          places=None, places_allowed=True, budget=None) -> tuple[PrepDeps, dict[str, ScriptedLLM]]:
+          places=None, places_allowed=True, budget=None,
+          places_remaining=None) -> tuple[PrepDeps, dict[str, ScriptedLLM]]:
     llms = {
         "plan": ScriptedLLM(plan),
         "extract": ScriptedLLM(*extracts),
@@ -134,6 +135,7 @@ def _deps(conn, *, plan, extracts=(), explores=(), write=None, reader=None, sear
     deps = PrepDeps(
         conn=conn, chains=chains, places=places, reader=reader or FakeReader(), search=search,
         now=NOW, usd_to_nzd=1.70, places_allowed=places_allowed, budget=budget or Budget(),
+        places_remaining=places_remaining,
     )
     return deps, llms
 
@@ -353,3 +355,43 @@ def test_a_run_that_reaches_the_spending_limit_still_saves_a_pack(conn):
     assert row["status"] == "done"
     assert "Stopped at the spending limit for one run." in row["notes"]
     assert len(llms["write"].calls) == 1
+
+
+def test_a_failed_planning_step_still_produces_a_pack(conn):
+    pack_id, app_id, _ = _setup(conn)
+    deps, _ = _deps(conn, plan=ProviderError("claude", "HTTP 500"), extracts=empties(1))
+
+    assert _run(conn, pack_id, app_id, deps).status == "ok"
+
+    assert "Planning failed (claude: HTTP 500), so no web searches were made." in (
+        prep_repo.get(conn, pack_id)["notes"])
+
+
+def test_explore_reads_only_listed_pages_or_the_employer_site(conn):
+    pack_id, app_id, _ = _setup(conn, website="https://example.co.nz")
+    reader = FakeReader({"https://example.co.nz": "Home.",
+                         "https://example.co.nz/team": "Team page."})
+    explores = [ExploreStep(action="read", argument="https://elsewhere.example/a"),
+                ExploreStep(action="read", argument="https://example.co.nz/team"),
+                ExploreStep(action="done")]
+    deps, _ = _deps(conn, plan=PlanResult(needs=["news"]), extracts=empties(3),
+                    explores=explores, reader=reader)
+
+    assert _run(conn, pack_id, app_id, deps).status == "ok"
+
+    assert "https://elsewhere.example/a" not in reader.urls
+    assert "https://example.co.nz/team" in reader.urls
+
+
+def test_the_places_cap_counts_every_lookup_in_a_run(conn):
+    pack_id, app_id, _ = _setup(conn, website="https://example.co.nz")
+    places = FakePlaces(None)
+    explores = [ExploreStep(action="place", argument="Example Freight Tech, Dunedin"),
+                ExploreStep(action="done")]
+    deps, _ = _deps(conn, plan=PlanResult(needs=["news"]), extracts=empties(2),
+                    explores=explores, places=places, places_remaining=1,
+                    reader=FakeReader({"https://example.co.nz": "Home."}))
+
+    assert _run(conn, pack_id, app_id, deps).status == "ok"
+
+    assert len(places.calls) == 1

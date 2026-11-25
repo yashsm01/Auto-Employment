@@ -79,3 +79,29 @@ def test_whatsapp_service_errors_are_reported():
 
     with pytest.raises(ProviderError, match="HTTP 500"):
         WhatsAppService(client, "http://127.0.0.1:3000/send", "").send("+64224379369", "Hi")
+
+
+def test_whatsapp_service_status_and_logout_use_the_same_address():
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, str(request.url), request.headers.get("Authorization")))
+        if request.url.path == "/status":
+            return httpx.Response(200, json={"state": "qr", "qr": "data:image/png;base64,AA",
+                                              "me": None, "error": None})
+        return httpx.Response(200, json={"ok": True})
+
+    service = WhatsAppService(_client(handler), "http://127.0.0.1:3010/send", "tok")
+
+    assert service.status()["state"] == "qr"
+    service.logout()
+    assert seen == [("GET", "http://127.0.0.1:3010/status", "Bearer tok"),
+                    ("POST", "http://127.0.0.1:3010/logout", "Bearer tok")]
+
+
+def test_a_stopped_whatsapp_service_is_reported():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    with pytest.raises(ProviderError, match="did not answer"):
+        WhatsAppService(_client(handler), "http://127.0.0.1:3010/send").status()

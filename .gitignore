@@ -32,3 +32,6 @@ dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# WhatsApp Web login session (gives access to your WhatsApp): never commit
+whatsapp-service/auth/

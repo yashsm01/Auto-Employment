@@ -226,13 +226,13 @@ def awaiting_reply(conn: psycopg.Connection) -> list[dict[str, Any]]:
     """Emailed applications with no reply yet, and the address they went to."""
     return conn.execute(
         """
-        select a.id, a.profile_id, a.applied_at, o.to_address, j.title,
+        select a.id, a.profile_id, a.applied_at, o.to_address, o.id as outbox_id, j.title,
                coalesce(c.name, 'The employer') as company
         from applications a
         join jobs j on j.id = a.job_id
         left join companies c on c.id = j.company_id
         join lateral (
-            select to_address from outbox
+            select id, to_address from outbox
             where application_id = a.id and kind = 'application' and status = 'sent'
             order by sent_at limit 1
         ) o on true
@@ -325,3 +325,18 @@ def manual_follow_ups_due(conn: psycopg.Connection, today: date) -> list[dict[st
         """,
         (today,),
     ).fetchall()
+
+
+def mark_bounced(conn: psycopg.Connection, outbox_id: UUID | str, application_id: UUID | str,
+                 error: str) -> None:
+    """The email never arrived: the job goes back to "Ready to apply" for another address."""
+    conn.execute("update outbox set status = 'failed', error = %s where id = %s",
+                 (error, outbox_id))
+    conn.execute(
+        """
+        update applications set status = 'approved', apply_method = null, applied_at = null,
+            follow_ups = 0, next_follow_up = null, updated_at = now()
+        where id = %s
+        """,
+        (application_id,),
+    )

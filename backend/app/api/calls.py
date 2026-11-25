@@ -63,6 +63,13 @@ class CallItem(BaseModel):
     transcript: str | None = None
 
 
+class WhatsAppLink(BaseModel):
+    state: str
+    qr: str | None = None
+    me: str | None = None
+    error: str | None = None
+
+
 class Phase4View(BaseModel):
     calls: CallsStatus
     whatsapp: WhatsAppStatus
@@ -125,6 +132,39 @@ def test_whatsapp(
         )
     whatsapp.send(settings.whatsapp_to, notify_service.TEST_MESSAGE)
     return _view(conn, profile_id, settings)
+
+
+@router.get("/whatsapp/status")
+def whatsapp_status(
+    settings: SettingsDep, whatsapp: WhatsAppService | None = Depends(get_whatsapp)
+) -> WhatsAppLink:
+    """The WhatsApp Web link: a QR code to scan, connected, or the service isn't running."""
+    if whatsapp is None:
+        return WhatsAppLink(
+            state="disabled",
+            error="Add WHATSAPP_ENABLED=true and WHATSAPP_TO to backend/.env, then restart.",
+        )
+    try:
+        data = whatsapp.status()
+    except ProviderError as error:
+        return WhatsAppLink(state="offline", error=str(error))
+    me = data.get("me")
+    return WhatsAppLink(
+        state=str(data.get("state") or "unknown"),
+        qr=data.get("qr") if str(data.get("qr") or "").startswith("data:image/png") else None,
+        me=notify_service.masked(f"+{me}") if me else None,
+        error=data.get("error"),
+    )
+
+
+@router.post("/whatsapp/logout")
+def whatsapp_logout(
+    settings: SettingsDep, whatsapp: WhatsAppService | None = Depends(get_whatsapp)
+) -> WhatsAppLink:
+    if whatsapp is None:
+        raise ProviderError("whatsapp", "WhatsApp is not set up in backend/.env")
+    whatsapp.logout()
+    return WhatsAppLink(state="logged_out")
 
 
 @router.post("/applications/{application_id}/send-after-call")

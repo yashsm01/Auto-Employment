@@ -50,6 +50,7 @@ def _deps(
         now=now,
         usd_to_nzd=settings.usd_to_nzd,
         places_allowed=places_used < settings.max_prep_places_calls_per_month,
+        places_remaining=max(settings.max_prep_places_calls_per_month - places_used, 0),
     )
 
 
@@ -74,7 +75,9 @@ def process_prep_queue(settings: Settings) -> int:
                     prep_repo.fail(conn, pack_id, NO_KEY_MESSAGE)
                     conn.commit()
                     continue
-                prep_repo.mark_running(conn, pack_id)
+                if not prep_repo.mark_running(conn, pack_id):
+                    conn.commit()
+                    continue  # another worker took it
                 conn.commit()
                 graph_input = {"pack_id": pack_id, "application_id": str(row["application_id"])}
                 try:

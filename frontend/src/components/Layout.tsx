@@ -4,7 +4,6 @@ import { useOutbox } from "../hooks/useOutbox";
 import { useReviewList } from "../hooks/useResumes";
 import { useShortlist } from "../hooks/useShortlist";
 
-const LATER = ["Settings"];
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   `flex min-h-11 flex-1 items-center justify-between gap-2 rounded-lg px-3 text-sm font-medium no-underline md:flex-none ${
@@ -63,15 +62,9 @@ export default function Layout() {
         <NavLink to="/profile" className={linkClass}>
           My resume profile
         </NavLink>
-        {LATER.map((name) => (
-          <span
-            key={name}
-            className="hidden min-h-11 items-center justify-between rounded-lg px-3 text-sm text-nav-muted md:flex"
-          >
-            {name}
-            <span className="text-[11px]">Soon</span>
-          </span>
-        ))}
+        <NavLink to="/settings" className={linkClass}>
+          Settings
+        </NavLink>
       </nav>
       <main className="flex min-w-0 flex-1 flex-col gap-5 px-4 py-7 md:px-8">
         <Outlet />

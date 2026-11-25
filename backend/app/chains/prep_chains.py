@@ -52,7 +52,8 @@ because some kinds of facts are still missing.
 
 Pick exactly one action:
 - "search": a short web search. argument is the search text.
-- "read": read one public web page already seen in the sources. argument is its URL.
+- "read": read the full page of a URL listed in the sources, or a page on the employer's own \
+website. argument is its URL.
 - "place": look the employer up on Google Maps. argument is "employer name, town".
 - "done": stop, because nothing useful is left to try.
 

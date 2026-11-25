@@ -39,6 +39,8 @@ PRICES_USD_PER_MTOK = {
 _FALLBACK_PRICE = PRICES_USD_PER_MTOK["claude-sonnet-5-5"]
 _PLAIN = str.maketrans({"“": '"', "”": '"', "„": '"', "‘": "'", "’": "'", "–": "-", "—": "-"})
 _NUMBER = re.compile(r"\d[\d,.]*")
+_MD_LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+_MD_MARKS = re.compile(r"[*_`#>]+")
 _LINK = re.compile(r"https?://\S+")
 # Facts about named people are never kept. These roles almost always come with a person's name.
 _PERSON_ROLES = re.compile(
@@ -138,6 +140,8 @@ def call_model[T](
 
 def normalise(text: str) -> str:
     plain = unicodedata.normalize("NFKC", text).translate(_PLAIN)
+    # Pages come from Jina as markdown: keep link text, drop emphasis and heading marks.
+    plain = _MD_MARKS.sub(" ", _MD_LINK.sub(r"\1", plain))
     return " ".join(plain.split()).casefold()
 
 
@@ -299,6 +303,8 @@ def request_run(
         raise BadRequest(BLOCKED_LINK_NOTE)
     if not available(settings):
         raise BadRequest(NO_KEY_MESSAGE)
+    # Hold the profile row so two quick requests can't both take the last run of the month.
+    conn.execute("select id from profiles where id = %s for update", (profile_id,))
     limit = get_settings(conn, profile_id).monthly_limit
     if used_this_month(conn, profile_id, now) >= limit:
         raise Conflict(

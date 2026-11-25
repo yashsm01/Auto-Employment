@@ -14,6 +14,7 @@ import {
   type ToSendItem,
   type WaitingItem,
 } from "../api/outbox";
+import { sendAfterCall } from "../api/settings";
 import { ErrorNotice, InfoNotice } from "../components/Notice";
 import { useOutbox, useOutboxAction } from "../hooks/useOutbox";
 
@@ -145,6 +146,13 @@ function EmailItem({ item, failed }: { item: OutboxItem; failed: boolean }) {
 
 function WaitingRow({ item }: { item: WaitingItem }) {
   const outcome = useOutboxAction((action: Outcome) => recordOutcome(item.application_id, action));
+  const resend = useOutboxAction((to: string) => sendAfterCall(item.application_id, to));
+  const callText: Record<string, string> = {
+    queued: "AI call: waiting for business hours",
+    ringing: "AI call: in progress",
+    done: "AI call: completed",
+    failed: "AI call: did not go through",
+  };
   const applied = item.applied_at ? dateFormat.format(new Date(item.applied_at)) : "";
   return (
     <article aria-label={`${item.title} at ${item.company}`} className="card flex flex-col gap-2">
@@ -168,7 +176,19 @@ function WaitingRow({ item }: { item: WaitingItem }) {
           {dateFormat.format(new Date(item.next_follow_up))}
         </span>
       )}
+      {item.call_status && (
+        <span className="text-sm">
+          {callText[item.call_status] ?? `AI call: ${item.call_status}`}
+          {item.captured_email && ` · email given: ${item.captured_email}`}
+        </span>
+      )}
       <div className="flex flex-wrap gap-2.5">
+        {item.captured_email && (
+          <button type="button" className="btn btn-primary" disabled={resend.isPending}
+                  onClick={() => resend.mutate(item.captured_email!)}>
+            Email my resume to {item.captured_email}
+          </button>
+        )}
         {item.apply_method === "manual" && item.follow_up_due && (
           <button type="button" className="btn btn-primary" disabled={outcome.isPending}
                   onClick={() => outcome.mutate("followed_up")}>
@@ -190,7 +210,9 @@ function WaitingRow({ item }: { item: WaitingItem }) {
           Close
         </button>
       </div>
-      {outcome.error && <ErrorNotice message={outcome.error.message} />}
+      {(outcome.error ?? resend.error) && (
+        <ErrorNotice message={(outcome.error ?? resend.error)!.message} />
+      )}
     </article>
   );
 }

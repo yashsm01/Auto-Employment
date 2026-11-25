@@ -166,3 +166,60 @@ describe("PreparationTab", () => {
     expect(screen.queryByRole("button", { name: "Run deep search" })).not.toBeInTheDocument();
   });
 });
+
+describe("PreparationTab limits and messages", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("says when the monthly limit is used up", async () => {
+    mockApi({
+      "GET /applications/a1/prep": () => ({
+        body: view({ status: "none", pack: null, used_this_month: 30, monthly_limit: 30 }),
+      }),
+    });
+    renderPage(<PreparationTab applicationId="a1" />);
+
+    expect(
+      await screen.findByText("You have used all 30 deep searches this month."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run deep search" })).toBeDisabled();
+  });
+
+  it("limits extra details to 20,000 characters and counts them", async () => {
+    mockApi({
+      "GET /applications/a1/prep": () => ({ body: view({ status: "none", pack: null }) }),
+    });
+    renderPage(<PreparationTab applicationId="a1" />);
+
+    const box = await screen.findByLabelText("Extra details (a link or text)");
+    expect(box).toHaveAttribute("maxLength", "20000");
+    await userEvent.type(box, "abc");
+    expect(screen.getByText("3 / 20,000")).toBeInTheDocument();
+  });
+
+  it("explains a rejected request field by field", async () => {
+    mockApi({
+      "GET /applications/a1/prep": () => ({ body: view({ status: "none", pack: null }) }),
+      "POST /applications/a1/prep": () => ({
+        status: 422,
+        body: {
+          detail: [{ loc: ["body", "extra"], msg: "String should have at most 20000 characters" }],
+        },
+      }),
+    });
+    renderPage(<PreparationTab applicationId="a1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Run deep search" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "extra: String should have at most 20000 characters",
+    );
+  });
+
+  it("says when the advert listed no requirements", async () => {
+    const pack = { ...view().pack!, evidence: [] };
+    mockApi({ "GET /applications/a1/prep": () => ({ body: view({ pack }) }) });
+    renderPage(<PreparationTab applicationId="a1" />);
+
+    expect(await screen.findByText("No requirements were listed in the advert.")).toBeInTheDocument();
+  });
+});

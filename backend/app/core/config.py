@@ -31,7 +31,8 @@ class _ShellSettings(EnvSettingsSource):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
+    # An empty line such as "OMNIDIM_AGENT_ID=" means "use the default", not an invalid value.
+    model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore", env_ignore_empty=True)
 
     @classmethod
     def settings_customise_sources(
@@ -90,7 +91,7 @@ class Settings(BaseSettings):
     max_calls_per_month: int = 5
     # Phase 4: WhatsApp updates to the user, through their own WhatsApp service.
     whatsapp_enabled: bool = False
-    whatsapp_service_url: str = ""
+    whatsapp_service_url: str = "http://127.0.0.1:3010/send"  # whatsapp-service/
     whatsapp_service_token: SecretStr = SecretStr("")
     whatsapp_to: str = ""
     whatsapp_to_field: str = "to"

@@ -11,6 +11,7 @@ from app.core.workdays import add_working_days, nz_today
 from app.graphs.lead.deps import LeadDeps
 from app.graphs.runner import run_graph
 from app.main import create_app
+from app.providers.jobs.gmail_alerts import EmailMessage
 from app.workers.outbox_job import process_outbox
 from tests.documents import make_pdf
 from tests.factories import make_job
@@ -27,8 +28,10 @@ RESUME_LINES = (
     "Skills: Python, SQL, Docker, Airflow",
 )
 ADVERT = "Build pipelines with Python, SQL and Airflow. Send your CV to Jobs@Example.co.nz."
-# The API queues emails at the real time, so the worker runs just after it.
-T = datetime.now(UTC) + timedelta(minutes=1)
+
+# Hours ahead, so the worker always runs after the real time the API queued at, however
+# long the suite has been running.
+T = datetime.now(UTC) + timedelta(hours=6)
 
 
 class OneSource:
@@ -54,15 +57,29 @@ class FakeSender:
 
 
 class FakeMail:
-    """Has a reply from these addresses."""
+    """Has a reply from these addresses, auto-replies from others, and bounces for others."""
 
-    def __init__(self, replies_from: tuple[str, ...] = ()) -> None:
+    def __init__(self, replies_from: tuple[str, ...] = (), auto_replies_from: tuple[str, ...] = (),
+                 bounced: tuple[str, ...] = ()) -> None:
         self.replies_from = replies_from
+        self.auto_replies_from = auto_replies_from
+        self.bounced = bounced
         self.queries: list[str] = []
 
     def list_ids(self, query: str, limit: int) -> list[str]:
         self.queries.append(query)
-        return ["1"] if any(f"from:{a}" in query for a in self.replies_from) else []
+        if "mailer-daemon" in query:
+            return ["b1"] if any(f'"{a}"' in query for a in self.bounced) else []
+        if any(f"from:{a}" in query for a in self.replies_from):
+            return ["r1"]
+        if any(f"from:{a}" in query for a in self.auto_replies_from):
+            return ["a1"]
+        return []
+
+    def read(self, message_id: str) -> EmailMessage:
+        auto = message_id == "a1"
+        return EmailMessage(id=message_id, subject="Automatic reply" if auto else "Re: Application",
+                            sender="jobs@example.co.nz", text="Thanks", auto_reply=auto)
 
     def close(self) -> None:
         pass
@@ -332,3 +349,34 @@ def test_a_second_outbox_run_waits_while_one_is_running(client, conn, sending, d
 
     process_outbox(sending, sender=sender, mail=FakeMail(), now=T)
     assert len(sender.sent) == 1
+
+
+def test_an_out_of_office_reply_does_not_count_as_a_reply(client, conn, sending):
+    app_id = _approved(client, conn)
+    client.post(f"/applications/{app_id}/send", json={"to": "jobs@example.co.nz"})
+    sender = FakeSender()
+    process_outbox(sending, sender=sender, mail=FakeMail(), now=T)
+
+    report = process_outbox(sending, sender=sender, now=T + timedelta(days=1),
+                            mail=FakeMail(auto_replies_from=("jobs@example.co.nz",)))
+
+    assert report["replies"] == 0
+    assert _application(conn, app_id)["status"] == "sent"
+
+
+def test_a_bounced_email_returns_the_job_to_ready_to_apply(client, conn, sending):
+    app_id = _approved(client, conn)
+    client.post(f"/applications/{app_id}/send", json={"to": "jobs@example.co.nz"})
+    sender = FakeSender()
+    process_outbox(sending, sender=sender, mail=FakeMail(), now=T)
+
+    report = process_outbox(sending, sender=sender, now=T + timedelta(days=1),
+                            mail=FakeMail(bounced=("jobs@example.co.nz",)))
+
+    assert report["bounced"] == 1
+    row = _application(conn, app_id)
+    assert (row["status"], row["apply_method"], row["next_follow_up"]) == ("approved", None, None)
+    email = _outbox(conn, app_id)[0]
+    assert (email["status"], email["error"]) == (
+        "failed", "Bounced: jobs@example.co.nz does not accept email.")
+    assert [i["application_id"] for i in client.get("/outbox").json()["to_send"]] == [app_id]

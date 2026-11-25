@@ -134,10 +134,11 @@ After you approve a tailored resume on **Resume review**, it waits under **Ready
 
 The rules:
 - At most 15 emails a day (change it on the Outbox page). A failed send is retried twice, 15 minutes apart, then shown under **Failed** with **Try again**.
-- With no reply after 5 working days (weekends skipped, public holidays not), a short follow-up is sent in the same email thread. A second follows 5 working days later, and the job closes 5 working days after that.
+- With no reply after 5 working days (weekends and NZ public holidays skipped; regional anniversary days are not), a short follow-up is sent in the same email thread. A second follows 5 working days later, and the job closes 5 working days after that.
 - With `EMAIL_ENABLED` set, replies are noticed automatically: any email from that address after you applied marks the job **Replied** and stops follow-ups. You can also press **They replied**, **Stop follow-ups** or **Close**.
 - The Outbox is checked every 15 minutes while the backend is running.
-- An automatic reply such as "out of office" counts as a reply, and a bounced email isn't noticed, so check the Outbox now and then.
+- Automatic replies such as "out of office" are ignored, so follow-ups continue.
+- A bounced email returns the job to "Ready to apply", so you can choose another address, and you get a WhatsApp update.
 
 **Nothing is sent until you switch it on.** Sending uses the same Gmail app password as reading alerts. Add this to `backend/.env` and restart the backend:
 
@@ -148,6 +149,91 @@ EMAIL_SEND_ENABLED=true
 Sending signs in to `smtp.gmail.com` over TLS, and refuses to sign in to any other server without encryption. `EMAIL_SMTP_HOST` and `EMAIL_SMTP_PORT` change the server.
 
 After updating the code, run `.venv\Scripts\python -m app.db.migrate` once in `backend` to add the Outbox columns.
+
+## AI phone calls and WhatsApp updates (Phase 4)
+
+Both are off until you switch them on in `backend/.env`. The **Settings** page shows their status, has test buttons, and lists recent calls.
+
+**AI phone calls (OmniDimension).** When an emailed application gets no reply after two follow-ups, the app calls the employer instead of closing the job. The call goes to the employer's published business number from Google Maps or their website.
+
+- The AI assistant says it is calling for you, and asks where to send your resume.
+- Calls go out Monday to Friday, 9:30 to 4:30 NZ time, with at most `MAX_CALLS_PER_MONTH` calls a month (default 5).
+- Afterwards, the app fetches the result: the transcript, how long the call took, and any email address given. The Outbox then shows **Email my resume to …**.
+- Jobs with no published number close as before.
+
+To set it up:
+
+1. In the OmniDimension dashboard, create an **outgoing** agent.
+   - Set its maximum call length to 180 seconds.
+   - Make its welcome message say it is an AI assistant calling on behalf of `{{candidate_name}}`.
+   - Its instructions can use these values, which the app sends with each call: `candidate_name`, `candidate_email`, `job_title`, `company`, `applied_on`, `candidate_summary` and `purpose` (`follow_up` or `test`).
+2. Add to `backend/.env`:
+
+```env
+CALLS_ENABLED=true
+OMNIDIM_API_KEY=your-key
+OMNIDIM_AGENT_ID=your-agent-id
+```
+
+3. Restart the backend and press **Test call to my phone** on Settings. This rings the phone number under "Your details for resumes".
+
+When `EMAIL_ADDRESS` is set, OmniDimension also emails you a summary of each call. Each call costs about NZ$0.15–0.30 a minute.
+
+**WhatsApp updates.** These go only to you, through WhatsApp Web, which you link with a QR code on **Settings › WhatsApp**. Nothing is sent to employers on WhatsApp, because Meta's rules don't allow messaging people who haven't opted in.
+
+You get an update for:
+- new shortlisted jobs
+- resumes ready for review
+- employer replies
+- follow-ups due
+- finished calls
+- emails that failed to send or bounced
+
+To set it up:
+
+1. Start the WhatsApp service in a second terminal. It needs Node 20 or newer, and it listens only on this computer, at `127.0.0.1:3010`:
+
+```powershell
+cd whatsapp-service
+npm install     # first time only
+npm start
+```
+
+2. In `backend/.env`, set:
+
+```env
+WHATSAPP_ENABLED=true
+WHATSAPP_TO=+6422XXXXXXX
+```
+
+   Leave `WHATSAPP_SERVICE_URL` empty to use this service.
+3. Restart the backend, open **Settings › WhatsApp**, and scan the QR code: WhatsApp › Settings › Linked devices › Link a device.
+4. Press **Send me a test WhatsApp**.
+
+Some details:
+- The login is kept in `whatsapp-service/auth/`, which git ignores and which gives access to your WhatsApp, so never share it. **Unlink WhatsApp** removes it.
+- The service only messages the linked number. To send to another number of yours, start it with `WA_ALLOWED_TO=64XXXXXXXXX`.
+- To require a token, start it with `WA_TOKEN=...` and put the same value in `WHATSAPP_SERVICE_TOKEN`.
+- Messages to your own number arrive in "Message yourself" and may not ring. For alerts with sound, link a second WhatsApp number to the service and set `WHATSAPP_TO` (and `WA_ALLOWED_TO`) to your main number.
+- WhatsApp Web through Baileys isn't an official WhatsApp product, so keep it to these low-volume updates.
+
+After updating the code, run `.venv\Scripts\python -m app.db.migrate` once in `backend` to add the calls and notifications tables.
+
+## Auto mode (Phase 5)
+
+Auto mode acts for you, so it's off until you switch it on under **Auto mode** on the Settings page. Every 15 minutes, while the backend is running, it:
+
+1. approves shortlisted jobs that score at least your **Minimum score** (default 80), up to **Jobs a day** (default 5), best first. This starts tailoring, and deep search if that's on.
+2. approves the tailored resume, but only for jobs auto mode approved itself, never for jobs you approved by hand.
+3. queues the application email when the advert or the employer's public record gives an address. Jobs without an address wait in the Outbox under "Ready to apply", and you get a WhatsApp update.
+
+Everything after that follows the normal rules:
+- emails still need `EMAIL_SEND_ENABLED=true` and stay within the daily send limit
+- follow-ups, reply checks and AI calls work as usual
+
+Auto mode needs your own uploaded resume, and it ignores example jobs. Switching it off stops new approvals, but emails already queued still go out; cancel them on the Outbox. Each auto-approved job says "Approved by auto mode" in its Contact history. Without a Claude key, it sends your resume as it is with a short standard cover note.
+
+After updating the code, run `.venv\Scripts\python -m app.db.migrate` once in `backend`.
 
 ## Project docs
 

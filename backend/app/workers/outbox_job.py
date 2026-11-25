@@ -16,7 +16,7 @@ from app.providers.channels.whatsapp_service import WhatsAppService
 from app.providers.jobs.gmail_alerts import ImapMailReader
 from app.providers.voice.omnidim import OmniDimClient
 from app.repositories import calls_repo, events_repo, outbox_repo
-from app.services import calls_service, notify_service, outbox_service
+from app.services import auto_service, calls_service, notify_service, outbox_service
 from app.services.outbox_service import (
     FOLLOW_UP_WORKING_DAYS,
     MAX_ATTEMPTS,
@@ -39,7 +39,48 @@ class Sender(Protocol):
 class ReplyReader(Protocol):
     def list_ids(self, query: str, limit: int) -> list[str]: ...
 
+    def read(self, message_id: str) -> Any: ...
+
     def close(self) -> None: ...
+
+
+def _check_bounces(conn: psycopg.Connection, mail: ReplyReader, settings: Settings) -> int:
+    bounced = 0
+    for row in outbox_repo.awaiting_reply(conn):
+        since = nz_today(row["applied_at"]).strftime("%Y/%m/%d")
+        query = f'from:(mailer-daemon OR postmaster) after:{since} "{row["to_address"]}"'
+        try:
+            found = mail.list_ids(query, 1)
+        except ProviderError:
+            logger.warning("Could not check for bounced emails", exc_info=True)
+            return bounced
+        if not found:
+            continue
+        error = f"Bounced: {row['to_address']} does not accept email."
+        outbox_repo.cancel_pending_follow_ups(conn, row["id"])
+        calls_repo.cancel_queued(conn, row["id"], "Cancelled: the email bounced.")
+        outbox_repo.mark_bounced(conn, row["outbox_id"], row["id"], error)
+        events_repo.add(conn, "note", application_id=row["id"], payload={"text": error})
+        notify_service.notify(
+            conn, settings, row["profile_id"], "bounced",
+            f"Your email about {row['title']} at {row['company']} bounced. "
+            "Choose another address in the Outbox.",
+            f"bounced:{row['outbox_id']}",
+        )
+        conn.commit()
+        bounced += 1
+    return bounced
+
+
+def _is_real_reply(mail: ReplyReader, ids: list[str]) -> bool:
+    """At least one answer that isn't an out-of-office or other automatic reply."""
+    for message_id in ids:
+        try:
+            if not mail.read(message_id).auto_reply:
+                return True
+        except ProviderError:
+            return True  # can't tell, so treat it as a reply rather than keep following up
+    return False
 
 
 def _check_replies(conn: psycopg.Connection, mail: ReplyReader, settings: Settings) -> int:
@@ -47,11 +88,11 @@ def _check_replies(conn: psycopg.Connection, mail: ReplyReader, settings: Settin
     for row in outbox_repo.awaiting_reply(conn):
         since = nz_today(row["applied_at"]).strftime("%Y/%m/%d")
         try:
-            found = mail.list_ids(f"from:{row['to_address']} after:{since}", 1)
+            found = mail.list_ids(f"from:{row['to_address']} after:{since}", 5)
         except ProviderError:
             logger.warning("Could not check replies", exc_info=True)
             return replies
-        if not found:
+        if not found or not _is_real_reply(mail, found):
             continue
         outbox_repo.cancel_pending_follow_ups(conn, row["id"])
         outbox_repo.set_outcome(conn, row["id"], "replied")
@@ -183,7 +224,9 @@ def process_outbox(
     """One pass over the outbox. Never raises."""
     now = now or datetime.now(UTC)
     report = {"sent": 0, "failed": 0, "follow_ups": 0, "closed": 0, "replies": 0, "skipped": 0,
-              "calls": 0, "call_results": 0, "updates": 0}
+              "bounced": 0,
+              "calls": 0, "call_results": 0, "updates": 0,
+              "auto_approved": 0, "auto_resumes": 0, "auto_queued": 0}
     password = settings.email_app_password.get_secret_value()
     try:
         with connect(settings.database_url) as conn:
@@ -228,12 +271,15 @@ def _run(
     omni: calls_service.Dialler | None,
     whatsapp: notify_service.WhatsApp | None,
 ) -> None:
-    """Replies first, so nobody who answered gets a follow-up; then follow-ups; then sending."""
+    """Auto mode first, then replies (so nobody who answered gets a follow-up), follow-ups,
+    sending, calls and WhatsApp updates."""
+    report.update(auto_service.run(conn, settings, now))
     if outbox_service.reading_configured(settings):
         reader = mail or ImapMailReader(
             settings.email_address, password, host=settings.email_imap_host
         )
         try:
+            report["bounced"] = _check_bounces(conn, reader, settings)
             report["replies"] = _check_replies(conn, reader, settings)
         finally:
             reader.close()

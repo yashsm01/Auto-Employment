@@ -134,3 +134,11 @@ def test_a_stuck_deep_search_lock_is_cleared_after_ten_minutes(conn):
     )
 
     assert runs_repo.start(conn, "prep", {}) is not None
+
+
+def test_only_a_queued_pack_can_be_marked_running(conn):
+    app_id, company = _application(conn, "1")
+    pack_id = prep_repo.insert_queued(conn, PROFILE_ID, app_id, company, None)
+
+    assert prep_repo.mark_running(conn, pack_id) is True
+    assert prep_repo.mark_running(conn, pack_id) is False

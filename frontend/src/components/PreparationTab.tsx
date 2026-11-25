@@ -5,6 +5,7 @@ import { usePrep, useRunPrep } from "../hooks/usePrep";
 import { ErrorNotice, InfoNotice } from "./Notice";
 
 const NO_KEY = "Deep search needs a Claude key in backend/.env.";
+const MAX_EXTRA = 20000;
 const timeFormat = new Intl.DateTimeFormat("en-NZ", { dateStyle: "medium", timeStyle: "short" });
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -62,8 +63,8 @@ function Items({ items }: { items: string[] }) {
   if (items.length === 0) return <p className="m-0 text-sm text-muted">None.</p>;
   return (
     <ul className="m-0 flex flex-col gap-1.5 pl-5 text-sm">
-      {items.map((item) => (
-        <li key={item}>{item}</li>
+      {items.map((item, index) => (
+        <li key={`${index}-${item}`}>{item}</li>
       ))}
     </ul>
   );
@@ -76,9 +77,12 @@ function Pack({ pack, sources }: { pack: PrepPack; sources: SourceLink[] }) {
   return (
     <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-4">
       <Section title="Your evidence for each requirement">
+        {evidence.length === 0 && (
+          <p className="m-0 text-sm text-muted">No requirements were listed in the advert.</p>
+        )}
         <ul className="m-0 flex list-none flex-col gap-2 p-0 text-sm">
-          {evidence.map((item) => (
-            <li key={item.requirement} className="flex flex-col gap-0.5">
+          {evidence.map((item, index) => (
+            <li key={`${index}-${item.requirement}`} className="flex flex-col gap-0.5">
               <b>{item.requirement}</b>
               {item.status === "matched" && <span>{item.evidence}</span>}
               {item.status === "gap" && <span className="text-bad">Gap: not shown in your resume</span>}
@@ -155,6 +159,7 @@ export default function PreparationTab({ applicationId }: { applicationId: strin
   if (error) return <ErrorNotice message={error.message} />;
 
   const busy = view.status === "queued" || view.status === "running";
+  const limitReached = view.used_this_month >= view.monthly_limit;
   const start = () => run.mutate(extra.trim() || null);
 
   return (
@@ -173,17 +178,26 @@ export default function PreparationTab({ applicationId }: { applicationId: strin
             id="prep-extra"
             className="input min-h-24 py-2"
             value={extra}
+            maxLength={MAX_EXTRA}
             onChange={(event) => setExtra(event.target.value)}
             placeholder="A company page or news link, or text from the advert"
           />
+          <span className="text-right text-xs text-muted">
+            {extra.length.toLocaleString("en-NZ")} / {MAX_EXTRA.toLocaleString("en-NZ")}
+          </span>
           <p className="m-0 text-[13px] text-muted">
             Links on SEEK, LinkedIn, Indeed, Glassdoor or Trade Me can't be opened. Paste the
             text instead.
           </p>
+          {limitReached && (
+            <p className="m-0 text-sm text-warn">
+              You have used all {view.monthly_limit} deep searches this month.
+            </p>
+          )}
           <button
             type="button"
             className="btn btn-primary self-start"
-            disabled={run.isPending}
+            disabled={run.isPending || limitReached}
             onClick={start}
           >
             {view.status === "failed" ? "Try again" : "Run deep search"}

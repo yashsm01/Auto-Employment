@@ -13,7 +13,9 @@ from tests.integration.test_outbox_flow import FakeMail, FakeSender, _approved
 
 pytestmark = pytest.mark.postgres
 
-T = datetime.now(UTC) + timedelta(minutes=1)
+# Hours ahead, so the worker always runs after the real time the API queued at, however
+# long the suite has been running.
+T = datetime.now(UTC) + timedelta(hours=6)
 
 
 def nz_morning(days_after_t: int, hour: int = 10) -> datetime:
@@ -296,3 +298,39 @@ def test_closing_a_job_cancels_its_waiting_call(client, conn, settings, fakes):
 
     assert fakes["omni"].dispatched == []
     assert _call(conn, app_id)["error"] == "Cancelled: you closed the job."
+
+
+class FakeLinkedWhatsApp(FakeWhatsApp):
+    def __init__(self, state: dict | Exception) -> None:
+        super().__init__()
+        self.state = state
+        self.logged_out = False
+
+    def status(self) -> dict:
+        if isinstance(self.state, Exception):
+            raise self.state
+        return self.state
+
+    def logout(self) -> None:
+        self.logged_out = True
+
+
+def test_the_whatsapp_link_status_shows_the_qr_code(settings):
+    from app.core.errors import ProviderError
+
+    fake = FakeLinkedWhatsApp({"state": "qr", "qr": "data:image/png;base64,AA", "me": None,
+                               "error": None})
+    app = create_app()
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_whatsapp] = lambda: fake
+    with TestClient(app) as client:
+        body = client.get("/whatsapp/status").json()
+        assert (body["state"], body["qr"]) == ("qr", "data:image/png;base64,AA")
+
+        fake.state = {"state": "connected", "qr": None, "me": "64224379369", "error": None}
+        assert client.get("/whatsapp/status").json()["me"] == "+64 22 *** *369"
+        assert client.post("/whatsapp/logout").status_code == 200
+        assert fake.logged_out
+
+        fake.state = ProviderError("whatsapp", "the WhatsApp service did not answer")
+        assert client.get("/whatsapp/status").json()["state"] == "offline"

@@ -11,8 +11,8 @@ The resume drives everything: what to search for, how jobs are scored, and what 
 | 2 | One week of shortlist review, then resume tailoring and the Resume review screen | Built and tested with the live AI on an invented resume. Not yet run on your own shortlist |
 | 3 | Email sending, follow-ups, Outbox screen | Built and tested with a fake mail server; sending is off until EMAIL_SEND_ENABLED=true |
 | + | Deep search: an on/off preparation pack per job (added to the plan on 24 Nov 2026) | Built and tested with the live AI on an invented resume |
-| 4 | WhatsApp and OmniDimension AI calls, as tests only | Not started |
-| 5 | Auto mode, switched on by the user | Not started |
+| 4 | WhatsApp and OmniDimension AI calls, as tests only | Built and tested against local fakes. Calls are automatic after two unanswered follow-ups (max 5 a month); WhatsApp sends updates to you only. Both are off until set up in backend/.env |
+| 5 | Auto mode, switched on by the user | Built and tested; off by default (Settings page). Approves jobs scoring 80+ (max 5 a day), their resumes, and queues emails that have a published address |
 
 ## Budget
 

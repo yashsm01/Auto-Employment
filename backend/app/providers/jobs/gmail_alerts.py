@@ -38,6 +38,26 @@ class EmailMessage:
     subject: str
     sender: str
     text: str
+    auto_reply: bool = False
+
+
+_AUTO_SUBJECT = re.compile(
+    r"^\s*(automatic reply|auto[- ]?reply|autoreply|auto:|out of (the )?office|away from|"
+    r"undeliverable|delivery status notification)",
+    re.IGNORECASE,
+)
+
+
+def is_auto_reply(message: Message) -> bool:
+    """Out-of-office and other automatic answers, by the standard headers or the subject."""
+    submitted = str(message.get("Auto-Submitted") or "").strip().casefold()
+    if submitted and submitted != "no":
+        return True
+    if message.get("X-Autoreply") or message.get("X-Autorespond"):
+        return True
+    if str(message.get("Precedence") or "").strip().casefold() in ("auto_reply", "bulk", "junk"):
+        return True
+    return bool(_AUTO_SUBJECT.match(str(message.get("subject") or "")))
 
 
 def message_text(message: Message) -> str:
@@ -115,6 +135,7 @@ class ImapMailReader:
             subject=str(message["subject"] or ""),
             sender=str(message["from"] or ""),
             text=message_text(message),
+            auto_reply=is_auto_reply(message),
         )
 
     def close(self) -> None:

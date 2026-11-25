@@ -20,6 +20,7 @@ class PrepDeps:
     usd_to_nzd: float
     places_allowed: bool
     budget: Budget = field(default_factory=Budget)
+    places_remaining: int | None = None  # this month's free lookups left; None means no cap
 
 
 def get_deps(config: RunnableConfig) -> PrepDeps:

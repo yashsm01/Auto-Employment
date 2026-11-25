@@ -244,3 +244,16 @@ def test_a_blocked_extra_link_is_refused_before_queueing(keyed_client, conn, bac
     assert "Paste the job text into Extra details instead." in response.json()["detail"]
     assert _packs(conn, app_id) == []
     assert background["prep"].calls == []
+
+
+def test_a_failed_run_that_cost_nothing_does_not_use_the_monthly_limit(keyed_client, conn):
+    keyed_client.put("/deep-search", json={"enabled": False, "monthly_limit": 1})
+    first = _application(conn, "1")
+    keyed_client.post(f"/applications/{first}/prep", json={})
+    conn.execute("update prep_packs set status = 'failed', cost_usd = 0")
+    conn.commit()
+
+    second = keyed_client.post(f"/applications/{_application(conn, '2')}/prep", json={})
+
+    assert second.status_code == 200
+    assert second.json()["used_this_month"] == 1
