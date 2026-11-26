@@ -6,10 +6,11 @@ from uuid import UUID
 
 import psycopg
 
+from app.chains.resume_sections_chain import ResumeSectionsChain
 from app.core.errors import Conflict, NotFound
 from app.core.normalize import contains_term
 from app.core.urls import safe_url
-from app.repositories import applications_repo, companies_repo, events_repo, runs_repo
+from app.repositories import applications_repo, companies_repo, events_repo, runs_repo, skills_repo
 from app.schemas.application import (
     ApplicationDetail,
     BoardCard,
@@ -25,7 +26,7 @@ from app.schemas.application import (
 from app.schemas.contacts import EmployerContacts
 from app.schemas.feedback import Decision
 from app.schemas.job import ScoreResult, StoredJob
-from app.services import contact_service
+from app.services import contact_service, coverage_service
 
 _COLUMNS = (
     ("shortlisted", "Shortlisted", ("shortlisted",)),
@@ -177,25 +178,38 @@ def pipeline(conn: psycopg.Connection, profile_id: UUID) -> Pipeline:
     )
 
 
-def shortlist_items(conn: psycopg.Connection, profile_id: UUID) -> list[ShortlistItem]:
+def shortlist_items(
+    conn: psycopg.Connection, profile_id: UUID, sections_chain: ResumeSectionsChain | None = None
+) -> list[ShortlistItem]:
     rows = applications_repo.list_by_status(conn, profile_id, ["shortlisted"])
-    return [
-        ShortlistItem(
-            id=row["id"],
-            score=row["score"],
-            title=row["title"],
-            company=row["company"],
-            city=_city(row["location"], row["region"]),
-            salary=format_salary(row["salary_min"], row["salary_max"]),
-            source=_source_label(row["source"], row["external_id"]),
-            matched_skills=row["matched_skills"],
-            missing_skills=row["missing_skills"],
-            reason=row["score_reason"] or "",
-            url=safe_url(row["url"]),
-            is_example=row["source"] == "example",
+    if not rows:
+        return []
+    sections = coverage_service.key_sections(conn, profile_id, sections_chain)
+    decisions = skills_repo.decisions(conn, profile_id)
+    items = []
+    for row in rows:
+        required, preferred, split = coverage_service.requirements(row)
+        result = coverage_service.coverage(sections, required, preferred, split, decisions)
+        items.append(
+            ShortlistItem(
+                id=row["id"],
+                score=row["score"],
+                title=row["title"],
+                company=row["company"],
+                city=_city(row["location"], row["region"]),
+                salary=format_salary(row["salary_min"], row["salary_max"]),
+                source=_source_label(row["source"], row["external_id"]),
+                matched_skills=row["matched_skills"],
+                missing_skills=row["missing_skills"],
+                reason=row["score_reason"] or "",
+                url=safe_url(row["url"]),
+                is_example=row["source"] == "example",
+                required_covered=coverage_service.covered(result.required),
+                required_total=len(result.required),
+                requirements_split=split,
+            )
         )
-        for row in rows
-    ]
+    return items
 
 
 def detail(

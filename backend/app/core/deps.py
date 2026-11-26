@@ -9,6 +9,8 @@ import httpx
 import psycopg
 from fastapi import Depends
 
+from app.chains.manager import get_tailoring_chains
+from app.chains.resume_sections_chain import ResumeSectionsChain
 from app.core.config import Settings
 from app.core.errors import AppError, BadRequest, NotFound
 from app.db.client import connect
@@ -62,3 +64,8 @@ def get_contact_tools(settings: SettingsDep) -> Iterator[ContactTools]:
     """Reads an employer's own pages. Overridden in tests with fakes."""
     with httpx.Client(timeout=20) as client:
         yield build_contact_tools(settings, client)
+
+
+def get_sections_chain(settings: SettingsDep) -> ResumeSectionsChain | None:
+    """Splits a resume into parts with AI, or None without a Claude key. Overridden in tests."""
+    return get_tailoring_chains(settings)[0]

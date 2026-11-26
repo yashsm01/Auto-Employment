@@ -18,7 +18,9 @@ from app.services.tailoring_service import (
     assemble,
     check_facts,
     cover_note_body,
+    drop_declined_sentences,
     frame_cover_note,
+    source_text,
 )
 from tests.documents import SAMPLE_RESUME_LINES
 from tests.factories import make_job
@@ -280,3 +282,80 @@ def test_pdf_renders_nz_place_names_and_typographic_quotes(tmp_path):
     assert "–" in text
     assert "Sample Person" in text
     assert "Example Retail Ltd" in text
+
+
+def test_a_declined_skill_is_removed_from_bullets_summary_and_cover_note():
+    draft = _draft(
+        summary="Developer who builds Looker dashboards.",
+        bullets=[
+            BulletRewrite(id="r0b0", text="Built Python and Airflow pipelines with Looker."),
+            BulletRewrite(id="r0b1", text="Wrote SQL reports for the finance team."),
+        ],
+        cover_note=(
+            "Hello,\n\nI build data pipelines. I know Looker well.\nI also love data.\n\n"
+            "Sample Person"
+        ),
+    )
+
+    fixed, notes = check_facts(_base(), RAW, assemble(_base(), draft), declined=["Looker"])
+
+    assert fixed.roles[0].bullets[0].text == (
+        "Built data pipelines with Python and Airflow for 3 teams."
+    )
+    assert fixed.summary == "Developer with 2 years building internal tools."
+    assert "Looker" not in fixed.cover_note
+    assert "I also love data." in fixed.cover_note
+    assert "I build data pipelines." in fixed.cover_note
+    assert notes.count("Removed a mention of Looker, which you said you don't have.") == 1
+
+
+def test_a_declined_skill_already_in_the_resume_is_kept():
+    draft = _draft(
+        bullets=[BulletRewrite(id="r0b0", text="Built Python and Airflow pipelines for 3 teams.")]
+    )
+
+    fixed, notes = check_facts(_base(), RAW, assemble(_base(), draft), declined=["Airflow"])
+
+    assert fixed.roles[0].bullets[0].text == "Built Python and Airflow pipelines for 3 teams."
+    assert notes == []
+
+
+def test_a_declined_skill_only_in_the_uploaded_text_is_removed():
+    base = _base()
+    raw = RAW + "\nTrained on Looker at university."
+    draft = _draft(
+        summary="Developer who builds Looker dashboards.",
+        bullets=[
+            BulletRewrite(id="r0b0", text="Built Python and Airflow pipelines with Looker."),
+            BulletRewrite(id="r0b1", text="Wrote SQL reports for the finance team."),
+        ],
+        cover_note="Hello,\n\nI build data pipelines. I know Looker well.\n\nSample Person",
+    )
+
+    fixed, notes = check_facts(base, source_text(raw, base), assemble(base, draft),
+                               declined=["Looker"])
+
+    assert "Looker" not in fixed.summary
+    assert "Looker" not in fixed.roles[0].bullets[0].text
+    assert "Looker" not in fixed.cover_note
+    assert "I build data pipelines." in fixed.cover_note
+
+
+def test_a_declined_skill_is_not_in_the_tailored_skills_list():
+    base = _base()
+    tailored = assemble(base, _draft()).model_copy(update={"skills": ["Python", "Looker"]})
+
+    fixed, _ = check_facts(base, source_text(RAW, base), tailored, declined=["Looker"])
+
+    assert "Looker" not in fixed.skills
+    assert "Python" in fixed.skills
+
+
+def test_a_declined_go_does_not_remove_we_go_live_from_a_cover_note():
+    cover, notes = drop_declined_sentences(
+        "Kia ora,\n\nWe go live every week. I know Go well.", ["Go"], "Python and SQL work."
+    )
+
+    assert "We go live every week." in cover
+    assert "I know Go well." not in cover
+    assert notes == ["Removed a mention of Go, which you said you don't have."]

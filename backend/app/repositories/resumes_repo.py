@@ -26,6 +26,22 @@ def save_sections(conn: psycopg.Connection, resume_id: UUID, sections: dict[str,
     )
 
 
+def save_master(
+    conn: psycopg.Connection,
+    resume_id: UUID,
+    sections: dict[str, Any],
+    contact: dict[str, Any],
+    template: str,
+) -> None:
+    """Sections, contact and template in one statement, so they save together."""
+    conn.execute(
+        "update resumes set content = content || jsonb_build_object("
+        "'sections', %s::jsonb, 'contact', %s::jsonb, 'template', %s::text) "
+        "where id = %s",
+        (Jsonb(sections), Jsonb(contact), template, resume_id),
+    )
+
+
 def set_contact(conn: psycopg.Connection, resume_id: UUID, contact: dict[str, Any]) -> None:
     conn.execute(
         "update resumes set content = content || jsonb_build_object('contact', %s::jsonb) "

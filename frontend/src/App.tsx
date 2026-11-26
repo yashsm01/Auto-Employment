@@ -6,6 +6,7 @@ import JobDetail from "./pages/JobDetail";
 import Pipeline from "./pages/Pipeline";
 import Outbox from "./pages/Outbox";
 import Profile from "./pages/Profile";
+import ResumeBuilder from "./pages/ResumeBuilder";
 import Settings from "./pages/Settings";
 import ResumeReview from "./pages/ResumeReview";
 import Shortlist from "./pages/Shortlist";
@@ -17,6 +18,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={<Pipeline />} />
         <Route path="shortlist" element={<Shortlist />} />
+        <Route path="builder" element={<ResumeBuilder />} />
         <Route path="jobs/:id" element={<JobDetail />} />
         <Route path="jobs/:id/resume" element={<TailoredResume />} />
         <Route path="resumes" element={<ResumeReview />} />

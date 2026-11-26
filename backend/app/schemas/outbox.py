@@ -19,6 +19,12 @@ class OutboxSettings(BaseModel):
     daily_send_limit: int = Field(ge=0, le=50)
 
 
+class FollowUpSettings(BaseModel):
+    """auto: follow-ups go out on their own. ask: each one waits as a draft for Send or Skip."""
+
+    mode: Literal["auto", "ask"] = "auto"
+
+
 class ToSendItem(BaseModel):
     application_id: UUID
     title: str
@@ -74,4 +80,5 @@ class OutboxView(BaseModel):
     queued: list[OutboxItem]
     failed: list[OutboxItem]
     waiting: list[WaitingItem]
+    drafts: list[OutboxItem]
     replied: list[DoneItem]

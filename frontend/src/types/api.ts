@@ -283,6 +283,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/resumes/{resume_id}/docx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resume Docx */
+        get: operations["resume_docx_resumes__resume_id__docx_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/deep-search": {
         parameters: {
             query?: never;
@@ -398,6 +415,41 @@ export interface paths {
         put?: never;
         /** Application Outcome */
         post: operations["application_outcome_applications__application_id__outcome_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/settings/follow-ups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Follow Up Settings */
+        get: operations["get_follow_up_settings_settings_follow_ups_get"];
+        /** Save Follow Up Settings */
+        put: operations["save_follow_up_settings_settings_follow_ups_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/outbox/{outbox_id}/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send Follow Up */
+        post: operations["send_follow_up_outbox__outbox_id__send_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -578,6 +630,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/master-cv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Master Cv */
+        get: operations["get_master_cv_master_cv_get"];
+        /** Save Master Cv */
+        put: operations["save_master_cv_master_cv_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/master-cv/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Master Cv
+         * @description The master CV as a PDF or Word file. The temporary file is removed after the response.
+         */
+        get: operations["download_master_cv_master_cv_file_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_id}/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Coverage */
+        get: operations["get_coverage_applications__application_id__coverage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/skills/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide Skill */
+        post: operations["decide_skill_skills_decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -620,6 +744,34 @@ export interface components {
             employer: components["schemas"]["EmployerDetail"];
             /** Timeline */
             timeline: components["schemas"]["TimelineEvent"][];
+        };
+        /** AtsItem */
+        AtsItem: {
+            /** Label */
+            label: string;
+            /** Ok */
+            ok: boolean;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+        };
+        /**
+         * AtsReport
+         * @description Rule-based checks an applicant tracking system can trip on, plus the text it would read.
+         */
+        AtsReport: {
+            /** Items */
+            items: components["schemas"]["AtsItem"][];
+            /** Text */
+            text: string;
+            /** Pages */
+            pages: number;
+            /** Pdf Bytes */
+            pdf_bytes: number;
+            /** Docx Bytes */
+            docx_bytes: number;
         };
         /** AutoModeSettings */
         AutoModeSettings: {
@@ -669,6 +821,11 @@ export interface components {
          */
         BaseSections: {
             /**
+             * Headline
+             * @default
+             */
+            headline: string;
+            /**
              * Summary
              * @default
              */
@@ -679,6 +836,16 @@ export interface components {
             skills?: string[];
             /** Education */
             education?: string[];
+            /**
+             * Interests
+             * @default
+             */
+            interests: string;
+            /**
+             * Referees
+             * @default Available on request.
+             */
+            referees: string;
         };
         /** BoardCard */
         BoardCard: {
@@ -791,11 +958,32 @@ export interface components {
             email?: string | null;
             /** Phone */
             phone?: string | null;
+            /** Location */
+            location?: string | null;
+            /** Linkedin */
+            linkedin?: string | null;
+            /** Whatsapp */
+            whatsapp?: string | null;
+            /** Work Rights */
+            work_rights?: string | null;
         };
         /** CoverNoteUpdate */
         CoverNoteUpdate: {
             /** Cover Note */
             cover_note: string;
+        };
+        /** Coverage */
+        Coverage: {
+            /** Required */
+            required: components["schemas"]["SkillCoverage"][];
+            /** Preferred */
+            preferred: components["schemas"]["SkillCoverage"][];
+            /** Split */
+            split: boolean;
+            /** Required Text */
+            required_text: string;
+            /** Preferred Text */
+            preferred_text: string;
         };
         /** DecisionRequest */
         DecisionRequest: {
@@ -942,10 +1130,58 @@ export interface components {
              */
             status: "matched" | "gap" | "check";
         };
+        /**
+         * FollowUpSettings
+         * @description auto: follow-ups go out on their own. ask: each one waits as a draft for Send or Skip.
+         */
+        FollowUpSettings: {
+            /**
+             * Mode
+             * @default auto
+             * @enum {string}
+             */
+            mode: "auto" | "ask";
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * MasterCV
+         * @description The PUT body. Size limits are checked here, not when a saved CV is read back.
+         */
+        MasterCV: {
+            contact: components["schemas"]["ContactDetails"];
+            sections: components["schemas"]["BaseSections"];
+            /**
+             * Template
+             * @default classic
+             * @enum {string}
+             */
+            template: "classic" | "modern" | "compact" | "executive";
+        };
+        /**
+         * MasterCVView
+         * @description The GET and PUT response. `source` says where the sections came from.
+         *
+         *     No size check: a CV the AI cached must always load, even if it is larger than the limits.
+         */
+        MasterCVView: {
+            contact: components["schemas"]["ContactDetails"];
+            sections: components["schemas"]["BaseSections"];
+            /**
+             * Template
+             * @default classic
+             * @enum {string}
+             */
+            template: "classic" | "modern" | "compact" | "executive";
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "resume" | "ai" | "empty";
+            ats?: components["schemas"]["AtsReport"] | null;
         };
         /** NearbyEmployer */
         NearbyEmployer: {
@@ -1048,6 +1284,8 @@ export interface components {
             failed: components["schemas"]["OutboxItem"][];
             /** Waiting */
             waiting: components["schemas"]["WaitingItem"][];
+            /** Drafts */
+            drafts: components["schemas"]["OutboxItem"][];
             /** Replied */
             replied: components["schemas"]["DoneItem"][];
         };
@@ -1376,6 +1614,38 @@ export interface components {
             url: string | null;
             /** Is Example */
             is_example: boolean;
+            /** Required Covered */
+            required_covered: number;
+            /** Required Total */
+            required_total: number;
+            /** Requirements Split */
+            requirements_split: boolean;
+        };
+        /** SkillCoverage */
+        SkillCoverage: {
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "shown" | "added" | "missing" | "declined";
+            /** Evidence */
+            evidence: string;
+            /** Matched As */
+            matched_as?: string | null;
+        };
+        /** SkillDecisionRequest */
+        SkillDecisionRequest: {
+            /** Skill */
+            skill: string;
+            /** Decision */
+            decision: ("have" | "no") | null;
+        };
+        /** SkillDecisionResponse */
+        SkillDecisionResponse: {
+            /** Ok */
+            ok: boolean;
         };
         /** SkillEntry */
         SkillEntry: {
@@ -1430,6 +1700,11 @@ export interface components {
         /** TailoredResume */
         TailoredResume: {
             /**
+             * Headline
+             * @default
+             */
+            headline: string;
+            /**
              * Summary
              * @default
              */
@@ -1440,6 +1715,16 @@ export interface components {
             skills?: string[];
             /** Education */
             education?: string[];
+            /**
+             * Interests
+             * @default
+             */
+            interests: string;
+            /**
+             * Referees
+             * @default Available on request.
+             */
+            referees: string;
             /**
              * Cover Note
              * @default
@@ -1475,6 +1760,9 @@ export interface components {
             ai_used: boolean;
             /** Pdf Url */
             pdf_url: string | null;
+            /** Docx Url */
+            docx_url?: string | null;
+            coverage?: components["schemas"]["Coverage"] | null;
             /** Error */
             error: string | null;
         };
@@ -2162,6 +2450,37 @@ export interface operations {
             };
         };
     };
+    resume_docx_resumes__resume_id__docx_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                resume_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_deep_search_deep_search_get: {
         parameters: {
             query?: never;
@@ -2414,6 +2733,90 @@ export interface operations {
                 "application/json": components["schemas"]["OutcomeRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_follow_up_settings_settings_follow_ups_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpSettings"];
+                };
+            };
+        };
+    };
+    save_follow_up_settings_settings_follow_ups_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpSettings"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowUpSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_follow_up_outbox__outbox_id__send_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                outbox_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -2701,6 +3104,154 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunResponse"];
+                };
+            };
+        };
+    };
+    get_master_cv_master_cv_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterCVView"];
+                };
+            };
+        };
+    };
+    save_master_cv_master_cv_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MasterCV"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterCVView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_master_cv_master_cv_file_get: {
+        parameters: {
+            query?: {
+                format?: "pdf" | "docx";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_coverage_applications__application_id__coverage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Coverage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_skill_skills_decision_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDecisionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

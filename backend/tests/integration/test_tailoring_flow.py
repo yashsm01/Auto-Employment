@@ -1,9 +1,12 @@
+import io
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
 import pytest
+from pypdf import PdfReader
 from fastapi.testclient import TestClient
+from psycopg.types.json import Jsonb
 
 from app.chains.manager import get_chain
 from app.chains.resume_sections_chain import ResumeSectionsChain, SectionsExtraction
@@ -18,10 +21,12 @@ from app.core.config import Settings
 from app.core.deps import get_settings
 from app.graphs.lead.deps import LeadDeps
 from app.graphs.resume.deps import ResumeDeps
+from app.graphs.resume.nodes import render_pdf
 from app.graphs.runner import run_graph
 from app.main import create_app
-from app.repositories import runs_repo
-from app.services import resume_review_service
+from app.repositories import runs_repo, skills_repo
+from app.schemas.tailoring import BaseSections, Bullet, RoleSection
+from app.services import coverage_service, resume_review_service
 from app.workers.tailor_job import process_tailoring_queue
 from tests.documents import make_pdf
 from tests.factories import NOW, make_job
@@ -347,7 +352,7 @@ def test_a_stuck_tailoring_run_is_cleared_after_ten_minutes(conn):
 def test_contact_details_are_read_from_the_resume_and_editable(client):
     _upload_resume(client)
     profile = client.get("/profile").json()
-    assert profile["contact"] == {
+    assert {key: profile["contact"][key] for key in ("name", "email", "phone")} == {
         "name": "Sample Person",
         "email": "sample.person@example.invalid",
         "phone": "+64 21 000 0000",
@@ -376,3 +381,231 @@ def test_contact_details_are_read_from_the_resume_and_editable(client):
 
 def test_profile_id_constant_matches_seed():
     assert UUID(PROFILE_ID)
+
+
+def _seed_base_sections(conn, template: str | None = None) -> None:
+    sections = BaseSections(
+        summary="",
+        roles=[
+            RoleSection(
+                title="Data Engineer",
+                employer="Example Retail Ltd",
+                dates="2022 - 2024",
+                bullets=[
+                    Bullet(id="r0b0", text="Built data pipelines with Python and Airflow."),
+                    Bullet(id="r0b1", text="Wrote SQL reports for the finance team."),
+                ],
+            )
+        ],
+        skills=["Python", "SQL", "Docker", "Airflow"],
+    )
+    patch = {"sections": sections.model_dump()}
+    if template:
+        patch["template"] = template
+    conn.execute(
+        "update resumes set content = content || %s::jsonb where kind = 'base'",
+        (Jsonb(patch),),
+    )
+    conn.commit()
+
+
+def _ai_deps(conn, settings, draft: TailorDraft) -> ResumeDeps:
+    return ResumeDeps(
+        conn=conn,
+        sections_chain=ResumeSectionsChain(ScriptedLLM(_sections())),
+        tailor_chain=TailorChain(ScriptedLLM(draft)),
+        check_chain=None,
+        upload_dir=settings.upload_dir,
+        now=datetime(2026, 11, 24, tzinfo=UTC),
+    )
+
+
+def test_tailored_files_use_the_chosen_design(client, conn, settings):
+    _upload_resume(client)
+    _seed_base_sections(conn, template="modern")
+    application_id = _shortlist_job(conn)
+
+    _approve(client, application_id)
+
+    view = client.get(f"/applications/{application_id}/resume").json()
+    content = conn.execute(
+        "select content, file_path from resumes where id = %s", (view["resume_id"],)
+    ).fetchone()
+    assert content["content"]["template"] == "modern"
+    assert Path(content["file_path"]).with_suffix(".docx").is_file()
+    assert view["docx_url"] == f"/resumes/{view['resume_id']}/docx"
+
+
+def test_docx_route_serves_the_word_file_for_this_profile_only(client, conn, settings):
+    _upload_resume(client)
+    _seed_base_sections(conn)
+    application_id = _shortlist_job(conn)
+    _approve(client, application_id)
+    view = client.get(f"/applications/{application_id}/resume").json()
+
+    response = client.get(view["docx_url"])
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    assert response.content.startswith(b"PK")
+    assert client.get("/resumes/00000000-0000-4000-8000-00000000ffff/docx").status_code == 404
+    outside = Path(settings.upload_dir).parent / "outside.pdf"
+    conn.execute(
+        "update resumes set file_path = %s where id = %s", (str(outside), view["resume_id"])
+    )
+    conn.commit()
+    assert client.get(view["docx_url"]).status_code == 404
+
+
+def test_a_declined_skill_is_removed_from_the_cover_note_and_bullets(client, conn, settings):
+    _upload_resume(client)
+    application_id = _shortlist_job(conn)
+    conn.execute("update applications set status = 'tailoring' where id = %s", (application_id,))
+    skills_repo.set_decision(conn, PROFILE_ID, "Looker", "no")
+    conn.commit()
+    draft = TailorDraft(
+        summary="",
+        bullets=[
+            BulletRewrite(id="r0b0", text="Built Python and Airflow pipelines with Looker."),
+            BulletRewrite(id="r0b1", text="Wrote SQL reports for the finance team."),
+        ],
+        skills_order=["Python"],
+        cover_note="Kia ora,\n\nI build data pipelines. I know Looker well.\n\nSample Person",
+    )
+
+    deps = _ai_deps(conn, settings, draft)
+    result = run_graph("resume", {"application_id": application_id}, deps)
+
+    assert result.status == "ok"
+    view = client.get(f"/applications/{application_id}/resume").json()
+    assert "Looker" not in view["tailored"]["roles"][0]["bullets"][0]["text"]
+    assert "Looker" not in view["cover_note"]
+    assert "I build data pipelines." in view["cover_note"]
+    assert view["notes"].count("Removed a mention of Looker, which you said you don't have.") == 1
+
+
+def test_review_view_includes_coverage_of_the_tailored_version(client, conn, settings):
+    _upload_resume(client)
+    application_id = _shortlist_job(conn)
+    conn.execute(
+        "update applications set required_skills = %s, requirements_split = true where id = %s",
+        (["Airflow", "Looker", "Kubernetes"], application_id),
+    )
+    conn.execute("update applications set status = 'tailoring' where id = %s", (application_id,))
+    skills_repo.set_decision(conn, PROFILE_ID, "Looker", "no")
+    conn.commit()
+    _seed_base_sections(conn)
+    draft = TailorDraft(
+        summary="",
+        bullets=[BulletRewrite(id="r0b0", text="Built Python and Airflow pipelines for 3 teams.")],
+        skills_order=["Python"],
+        cover_note="Kia ora,\n\nI build data pipelines.\n\nSample Person",
+    )
+
+    run_graph("resume", {"application_id": application_id}, _ai_deps(conn, settings, draft))
+
+    view = client.get(f"/applications/{application_id}/resume").json()
+    statuses = {item["name"]: item["status"] for item in view["coverage"]["required"]}
+    assert statuses == {"Airflow": "shown", "Looker": "declined", "Kubernetes": "missing"}
+    assert view["coverage"]["required_text"] == "1 of 3"
+
+
+def test_a_failed_word_file_does_not_stop_the_tailored_resume(client, conn, settings, monkeypatch):
+    _upload_resume(client)
+    application_id = _shortlist_job(conn)
+    conn.execute("update applications set status = 'tailoring' where id = %s", (application_id,))
+    conn.commit()
+    _seed_base_sections(conn)
+
+    def broken(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(render_pdf, "render_resume_docx", broken)
+    draft = TailorDraft(
+        summary="",
+        bullets=[BulletRewrite(id="r0b0", text="Built Python and Airflow pipelines for 3 teams.")],
+        skills_order=["Python"],
+        cover_note="Kia ora,\n\nI build data pipelines.\n\nSample Person",
+    )
+
+    deps = _ai_deps(conn, settings, draft)
+    result = run_graph("resume", {"application_id": application_id}, deps)
+
+    assert result.status == "ok"
+    view = client.get(f"/applications/{application_id}/resume").json()
+    assert view["status"] == "ready"
+    assert view["docx_url"] is None
+    assert client.get(view["pdf_url"]).status_code == 200
+    assert "The Word file could not be made this time. The PDF is ready." in view["notes"]
+
+
+def test_tailored_resume_without_parsed_sections_still_gets_a_word_file(client, conn):
+    _upload_resume(client)
+    application_id = _shortlist_job(conn)
+
+    _approve(client, application_id)
+
+    view = client.get(f"/applications/{application_id}/resume").json()
+    assert view["tailored"] is None
+    assert view["pdf_url"] is not None
+    assert view["docx_url"] == f"/resumes/{view['resume_id']}/docx"
+    assert client.get(view["docx_url"]).status_code == 200
+
+
+def _skeleton_cv(conn) -> None:
+    """A saved master CV with skills but no roles, as a blank form or "I have this" leaves it."""
+    conn.execute(
+        "update resumes set content = content || %s::jsonb where kind = 'base'",
+        (Jsonb({"sections": {"skills": ["Python", "SQL"]}}),),
+    )
+    conn.commit()
+
+
+def test_a_saved_cv_without_roles_is_not_used_for_the_tailored_resume(client, conn, settings):
+    _upload_resume(client)
+    _skeleton_cv(conn)
+    application_id = _shortlist_job(conn)
+    conn.execute("update applications set status = 'tailoring' where id = %s", (application_id,))
+    conn.commit()
+    sections_llm = ScriptedLLM(_sections())
+    tailor_llm = ScriptedLLM(TailorDraft(summary="", bullets=[], cover_note="Unused."))
+    deps = ResumeDeps(
+        conn=conn,
+        sections_chain=ResumeSectionsChain(sections_llm),
+        tailor_chain=TailorChain(tailor_llm),
+        check_chain=None,
+        upload_dir=settings.upload_dir,
+        now=datetime(2026, 11, 24, tzinfo=UTC),
+    )
+
+    result = run_graph("resume", {"application_id": application_id}, deps)
+
+    assert result.status == "ok"
+    assert sections_llm.calls == []  # the saved skeleton is not replaced by a fresh split
+    assert tailor_llm.calls == []
+    view = client.get(f"/applications/{application_id}/resume").json()
+    assert view["tailored"] is None
+    assert "Data Engineer" in view["cover_note"]
+    pdf = client.get(view["pdf_url"])
+    text = "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf.content)).pages)
+    assert "Built data pipelines with Python and Airflow for 3 teams." in text
+    assert "Wrote SQL reports for the finance team." in text
+
+
+def test_review_coverage_matches_the_shortlist_when_the_cv_is_blank(client, conn):
+    _upload_resume(client)
+    application_id = _shortlist_job(conn)
+    conn.execute(
+        "update applications set required_skills = %s, requirements_split = true where id = %s",
+        (["Airflow", "Looker", "Kubernetes"], application_id),
+    )
+    conn.commit()
+    _approve(client, application_id)
+
+    view = client.get(f"/applications/{application_id}/resume").json()
+
+    shortlist = coverage_service.for_application(conn, PROFILE_ID, application_id)
+    assert view["tailored"] is None
+    assert view["coverage"]["required_text"] == shortlist.required_text == "1 of 3"

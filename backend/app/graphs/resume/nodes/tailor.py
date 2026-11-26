@@ -12,7 +12,7 @@ def run(state: ResumeState, config: RunnableConfig) -> ResumeState:
         note = resume_build_service.plain_cover_note(state["job"], state["contact"].name)
         return {"tailored": None, "cover_note": note, "ai_used": False}
 
-    draft = deps.tailor_chain.run(sections, state["job"], state["facts"])
+    draft = deps.tailor_chain.run(sections, state["job"], state["facts"], state.get("ai_contact"))
     tailored = tailoring_service.assemble(sections, draft)
     body = tailoring_service.cover_note_body(tailored.cover_note, state["contact"].name)
     tailored = tailored.model_copy(update={"cover_note": body})

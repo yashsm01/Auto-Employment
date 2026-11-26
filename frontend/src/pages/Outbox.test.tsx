@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { OutboxView } from "../api/outbox";
+import type { OutboxItem, OutboxView } from "../api/outbox";
 import { mockApi, renderPage } from "../test/utils";
 import Outbox from "./Outbox";
 
@@ -27,6 +27,7 @@ function view(overrides: Partial<OutboxView> = {}): OutboxView {
     failed: [],
     waiting: [],
     replied: [],
+    drafts: [],
     ...overrides,
   };
 }
@@ -209,5 +210,55 @@ describe("Outbox", () => {
 
     expect(await screen.findByText(/Nothing to send yet/)).toBeInTheDocument();
     expect(screen.queryByText(/Email sending is off/)).not.toBeInTheDocument();
+  });
+
+  it("a draft follow-up can be sent", async () => {
+    const draft: OutboxItem = {
+      id: "o1",
+      application_id: "a2",
+      title: "Analyst",
+      company: "Example Health",
+      kind: "follow_up",
+      to: "hr@example.health",
+      subject: "Following up on my application",
+      scheduled_at: "2026-11-24T20:00:00Z",
+      attempts: 0,
+      error: null,
+    };
+    const current = view({ to_send: [], drafts: [draft] });
+    const calls = mockApi({
+      "GET /outbox": () => ({ body: { ...current, drafts: [draft] } }),
+      "POST /outbox/o1/send": () => ({ body: { ...current, drafts: [] } }),
+      "POST /outbox/o1/cancel": () => ({ body: { ...current, drafts: [] } }),
+    });
+    const user = userEvent.setup();
+    renderPage(<Outbox />);
+
+    const section = await screen.findByRole("region", { name: "Follow-ups waiting for you" });
+    expect(within(section).getByText(/Following up on my application/)).toBeInTheDocument();
+    expect(
+      within(section).getByText("Send queues this follow-up now. Skip stops follow-ups for this job."),
+    ).toBeInTheDocument();
+    await user.click(within(section).getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(findCall(calls, "/outbox/o1/send")).toBeDefined());
+    expect(await screen.findByText(/Nothing to send yet/)).toBeInTheDocument();
+  });
+
+  it("skips a draft follow-up", async () => {
+    const draft: OutboxItem = {
+      id: "o1", application_id: "a2", title: "Analyst", company: "Example Health", kind: "follow_up",
+      to: "hr@example.health", subject: "Following up", scheduled_at: "2026-11-24T20:00:00Z",
+      attempts: 0, error: null,
+    };
+    const calls = mockApi({
+      "GET /outbox": () => ({ body: view({ to_send: [], drafts: [draft] }) }),
+      "POST /outbox/o1/cancel": () => ({ body: view({ to_send: [], drafts: [] }) }),
+    });
+    const user = userEvent.setup();
+    renderPage(<Outbox />);
+
+    const section = await screen.findByRole("region", { name: "Follow-ups waiting for you" });
+    await user.click(within(section).getByRole("button", { name: "Skip" }));
+    await waitFor(() => expect(findCall(calls, "/outbox/o1/cancel")).toBeDefined());
   });
 });

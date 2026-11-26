@@ -13,5 +13,6 @@ def run(state: ResumeState, config: RunnableConfig) -> ResumeState:
         state["cached_sections"],
         state["raw_text"],
         deps.sections_chain,
+        state["contact"],
     )
     return {"sections": sections}

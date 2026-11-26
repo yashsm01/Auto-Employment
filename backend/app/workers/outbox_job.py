@@ -109,8 +109,8 @@ def _check_replies(conn: psycopg.Connection, mail: ReplyReader, settings: Settin
 
 def _schedule_follow_ups(
     conn: psycopg.Connection, now: datetime, settings: Settings
-) -> tuple[int, int]:
-    queued = closed = 0
+) -> tuple[int, int, int]:
+    queued = closed = drafts = 0
     for row in outbox_repo.manual_follow_ups_due(conn, nz_today(now)):
         notify_service.notify(
             conn, settings, row["profile_id"], "follow_up_due",
@@ -135,7 +135,8 @@ def _schedule_follow_ups(
         first = outbox_repo.first_sent(conn, row["id"])
         if first is None:
             continue
-        name = outbox_service.contact_name(conn, row["profile_id"])
+        contact = outbox_service.contact_details(conn, row["profile_id"])
+        asking = outbox_service.follow_up_settings(conn, row["profile_id"]).mode == "ask"
         outbox_repo.queue(
             conn,
             application_id=row["id"],
@@ -143,16 +144,28 @@ def _schedule_follow_ups(
             to=first["to_address"],
             subject=f"Re: {first['subject']}",
             body=outbox_service.follow_up_body(
-                row["title"], nz_today(first["sent_at"]), name, row["follow_ups"] + 1
+                row["title"], nz_today(first["sent_at"]), contact, row["follow_ups"] + 1
             ),
             attachment_path=None,
             attachment_name=None,
             reply_to_message_id=first["message_id"],
             scheduled_at=now,
+            status="draft" if asking else "queued",
         )
+        if asking:
+            # Waits for Send or Skip. Clearing the date means no second draft is made.
+            outbox_repo.stop_follow_ups(conn, row["id"])
+            notify_service.notify(
+                conn, settings, row["profile_id"], "follow_up_due",
+                f"Follow up today: {row['title']} at {row['company']}.",
+                f"follow-up:{row['id']}:{row['next_follow_up']}",
+            )
+            conn.commit()
+            drafts += 1
+            continue
         conn.commit()
         queued += 1
-    return queued, closed
+    return queued, closed, drafts
 
 
 def _send_due(
@@ -223,8 +236,8 @@ def process_outbox(
 ) -> dict[str, int]:
     """One pass over the outbox. Never raises."""
     now = now or datetime.now(UTC)
-    report = {"sent": 0, "failed": 0, "follow_ups": 0, "closed": 0, "replies": 0, "skipped": 0,
-              "bounced": 0,
+    report = {"sent": 0, "failed": 0, "follow_ups": 0, "drafts": 0, "closed": 0, "replies": 0,
+              "skipped": 0, "bounced": 0,
               "calls": 0, "call_results": 0, "updates": 0,
               "auto_approved": 0, "auto_resumes": 0, "auto_queued": 0}
     password = settings.email_app_password.get_secret_value()
@@ -283,7 +296,9 @@ def _run(
             report["replies"] = _check_replies(conn, reader, settings)
         finally:
             reader.close()
-    report["follow_ups"], report["closed"] = _schedule_follow_ups(conn, now, settings)
+    report["follow_ups"], report["closed"], report["drafts"] = _schedule_follow_ups(
+        conn, now, settings
+    )
     if outbox_service.sending_configured(settings):
         smtp = sender or SmtpSender(
             settings.email_smtp_host, settings.email_smtp_port, settings.email_address, password

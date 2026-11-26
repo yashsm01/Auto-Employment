@@ -1,5 +1,6 @@
 from datetime import date
 
+from app.schemas.tailoring import ContactDetails
 from app.services.outbox_service import attachment_name, follow_up_body, subject_for
 
 
@@ -13,11 +14,9 @@ def test_subject_and_file_name_never_carry_line_breaks_from_a_job_title():
     assert attachment_name("Dev / Ops: Lead", None) == "Resume - Dev Ops Lead.pdf"
 
 
-def test_follow_up_text():
-    first = follow_up_body("Data Engineer", date(2026, 11, 24), "Sample Person", 1)
-    second = follow_up_body("Data Engineer", date(2026, 11, 24), None, 2)
+def test_follow_up_text_names_the_follow_up_number():
+    first = follow_up_body("Data Engineer", date(2026, 11, 24), ContactDetails(), 1)
+    second = follow_up_body("Data Engineer", date(2026, 11, 24), ContactDetails(), 2)
 
-    assert "sent on 24 November 2026" in first
-    assert first.endswith("Ngā mihi,\nSample Person")
+    assert first.startswith("Kia ora,\n\nI'm following up on my application for the Data Engineer")
     assert "once more" in second
-    assert second.endswith("Ngā mihi")

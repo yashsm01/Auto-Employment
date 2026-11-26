@@ -6,7 +6,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field
 
 from app.core.errors import ProviderError
-from app.core.normalize import contains_term
+from app.core.normalize import contains_term, find_term
 from app.providers.llm.base import LLMProvider
 from app.schemas.feedback import Decision
 from app.schemas.job import JobDraft, ScoreResult
@@ -65,12 +65,19 @@ class KeywordScoreChain:
         if missing:
             reason += f" Missing {', '.join(missing)}."
         return ScoreResult(
-            score=score, matched_skills=matched, missing_skills=missing, reason=reason
+            score=score,
+            matched_skills=matched,
+            missing_skills=missing,
+            required_skills=[*matched, *missing],
+            preferred_skills=[],
+            requirements_split=False,
+            reason=reason,
         )
 
 
 MAX_CONSECUTIVE_FAILURES = 3
 MAX_POST_CHARS = 12_000
+MAX_REQUIREMENTS = 12
 
 SCORE_SYSTEM_PROMPT = """You score how well one job fits one candidate, from 0 to 100.
 
@@ -87,6 +94,10 @@ Rules:
 - Judge only from the candidate profile. Never assume skills it does not list.
 - matched_skills: skills from the candidate profile that the job needs.
 - missing_skills: skills the job requires that the profile does not list.
+- required_skills: skills or qualifications the job post calls required or essential. \
+Use the post's own wording, at most 12.
+- preferred_skills: skills or qualifications the job post calls preferred, desirable, nice \
+to have or a bonus. Use the post's own wording, at most 12.
 - reason: one short sentence the candidate can read.
 - past_decisions show which jobs the candidate approved or skipped. Use them as a light \
 preference signal."""
@@ -96,7 +107,30 @@ class JobScoreExtraction(BaseModel):
     score: int
     matched_skills: list[str] = Field(default_factory=list)
     missing_skills: list[str] = Field(default_factory=list)
+    required_skills: list[str] = Field(default_factory=list)
+    preferred_skills: list[str] = Field(default_factory=list)
     reason: str
+
+
+def _from_ad(skills: list[str], text: str) -> list[str]:
+    """Keep the skills the ad names, in the ad's wording, once each by casefold.
+
+    A skill matched only through the plural allowance keeps the model's wording.
+    """
+    seen: set[str] = set()
+    kept: list[str] = []
+    for skill in skills:
+        skill = skill.strip()
+        if not skill or not contains_term(text, skill):
+            continue
+        span = find_term(text, skill) or skill
+        wording = span if span.casefold() == skill.casefold() else skill
+        key = wording.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(wording)
+    return kept[:MAX_REQUIREMENTS]
 
 
 def _as_data(value: str) -> str:
@@ -129,10 +163,21 @@ class LLMScoreChain:
             system=SCORE_SYSTEM_PROMPT, user=user, schema=JobScoreExtraction, max_tokens=4000
         )
         owned = {name.casefold() for name in resume.all_skill_names()}
+        text = job.search_text()
+        required = _from_ad(answer.required_skills, text)
+        required_keys = {skill.casefold() for skill in required}
+        preferred = [
+            skill
+            for skill in _from_ad(answer.preferred_skills, text)
+            if skill.casefold() not in required_keys
+        ]
         return ScoreResult(
             score=max(0, min(100, answer.score)),
             matched_skills=[s for s in answer.matched_skills if s.casefold() in owned],
             missing_skills=answer.missing_skills,
+            required_skills=required,
+            preferred_skills=preferred,
+            requirements_split=True,
             reason=answer.reason,
             used_ai=True,
         )

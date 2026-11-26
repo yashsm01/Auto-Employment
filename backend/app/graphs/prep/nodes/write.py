@@ -14,7 +14,8 @@ def run(state: PrepState, config: RunnableConfig) -> PrepState:
 
     def write():
         return chain.run(
-            state["job"], state["sections"], state["raw_text"], state["facts"], sources, link
+            state["job"], state["sections"], state["raw_text"], state["facts"], sources, link,
+            state["contact"],
         )
 
     draft = None

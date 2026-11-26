@@ -11,10 +11,12 @@ from tests.fakes import ScriptedLLM
 
 
 def _answer(
-    score=80, matched=("Python",), missing=("AWS",), reason="Good fit"
+    score=80, matched=("Python",), missing=("AWS",), reason="Good fit",
+    required=(), preferred=(),
 ) -> JobScoreExtraction:
     return JobScoreExtraction(
-        score=score, matched_skills=list(matched), missing_skills=list(missing), reason=reason
+        score=score, matched_skills=list(matched), missing_skills=list(missing), reason=reason,
+        required_skills=list(required), preferred_skills=list(preferred),
     )
 
 
@@ -122,3 +124,77 @@ def test_keyword_chain_counts_a_skill_once_when_it_is_also_a_tool():
     result = KeywordScoreChain().run(resume, make_job(description="Python, Docker and SQL."))
 
     assert result.matched_skills == ["Python", "SQL", "Docker"]
+
+
+def test_ai_requirements_not_in_the_ad_are_dropped():
+    # The ad says "Build services with Python, FastAPI and SQL." and never mentions Kubernetes.
+    answer = _answer(required=("Python", "Kubernetes"), preferred=("Docker",))
+    result = LLMScoreChain(ScriptedLLM(answer)).run(make_resume(), make_job())
+
+    assert result.required_skills == ["Python"]
+    assert result.preferred_skills == []
+    assert result.requirements_split is True
+
+
+def test_a_skill_in_both_lists_stays_required():
+    answer = _answer(required=("Python", "SQL"), preferred=("python", "FastAPI"))
+    result = LLMScoreChain(ScriptedLLM(answer)).run(make_resume(), make_job())
+
+    assert result.required_skills == ["Python", "SQL"]
+    assert result.preferred_skills == ["FastAPI"]
+
+
+def test_ai_requirements_are_deduped_capped_and_keep_the_ad_wording():
+    job = make_job(description="Python, python, FastAPI, SQL and " + ", ".join(
+        f"Skill{i}" for i in range(20)
+    ))
+    names = ["python", "PYTHON", "FastAPI", "SQL"] + [f"Skill{i}" for i in range(20)]
+    answer = _answer(required=names, preferred=["Skill0", "Skill19"])
+    result = LLMScoreChain(ScriptedLLM(answer)).run(make_resume(), job)
+
+    assert result.required_skills[0] == "Python"
+    assert len(result.required_skills) == 12
+    assert len({s.casefold() for s in result.required_skills}) == 12
+    assert "Skill19" not in result.required_skills
+    # Skill0 is required, so it leaves preferred. Skill19 fell past the cap, so it stays.
+    assert result.preferred_skills == ["Skill19"]
+
+
+def test_keyword_scoring_lists_found_skills_as_one_group():
+    resume = make_resume()
+
+    result = KeywordScoreChain().run(resume, make_job(description="Python, Docker and SQL."))
+
+    assert result.required_skills == ["Python", "SQL", "Docker"]
+    assert result.preferred_skills == []
+    assert result.requirements_split is False
+
+
+def test_fallback_passes_through_the_requirements_of_the_chain_it_used():
+    result = _fallback(ScriptedLLM(_answer(required=("Python",)))).run(
+        make_resume(), make_job()
+    )
+    assert result.requirements_split is True
+    assert result.required_skills == ["Python"]
+
+    failing = _fallback(ScriptedLLM(ProviderError("claude", "HTTP 500")))
+    result = failing.run(make_resume(), make_job(description="Python and Docker."))
+    assert result.requirements_split is False
+    assert result.required_skills == ["Python", "Docker"]
+
+
+def test_ai_requirement_takes_the_ad_wording_for_case():
+    # The model writes "python"; the ad writes "Python". The stored skill is the ad's.
+    answer = _answer(required=("python", "fastapi"))
+    result = LLMScoreChain(ScriptedLLM(answer)).run(make_resume(), make_job())
+
+    assert result.required_skills == ["Python", "FastAPI"]
+
+
+def test_ai_requirement_keeps_the_model_wording_when_the_ad_has_a_plural():
+    # contains_term accepts "APIs" for "API"; there is no exact span, so the model's string stays.
+    job = make_job(description="Build REST APIs with Python.")
+    answer = _answer(required=("API", "Python"))
+    result = LLMScoreChain(ScriptedLLM(answer)).run(make_resume(), job)
+
+    assert result.required_skills == ["API", "Python"]

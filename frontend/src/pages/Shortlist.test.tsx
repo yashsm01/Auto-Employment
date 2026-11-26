@@ -20,6 +20,9 @@ function item(overrides: Partial<ShortlistItem> = {}): ShortlistItem {
     reason: "Your API work matches their platform.",
     url: "https://example.invalid/job",
     is_example: false,
+    required_covered: 0,
+    required_total: 0,
+    requirements_split: false,
     ...overrides,
   };
 }
@@ -164,5 +167,21 @@ describe("Shortlist", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Database down");
     expect(screen.queryByText(/no jobs on your shortlist/i)).not.toBeInTheDocument();
+  });
+
+  it("the shortlist chip shows and hides", async () => {
+    withItems([
+      item({ id: "a1", required_covered: 2, required_total: 3, requirements_split: true }),
+      item({ id: "a2", title: "Data Analyst", required_covered: 1, required_total: 4, requirements_split: false }),
+      item({ id: "a3", title: "Platform Lead", required_covered: 0, required_total: 0 }),
+    ]);
+    renderPage(<Shortlist />);
+
+    const first = (await screen.findByRole("heading", { name: "Junior Python Developer" })).closest("article")!;
+    expect(within(first).getByText("Skills: 2 of 3 required")).toBeInTheDocument();
+    const second = screen.getByRole("heading", { name: "Data Analyst" }).closest("article")!;
+    expect(within(second).getByText("Skills: 1 of 4 in the ad")).toBeInTheDocument();
+    const third = screen.getByRole("heading", { name: "Platform Lead" }).closest("article")!;
+    expect(within(third).queryByText(/Skills:/)).toBeNull();
   });
 });

@@ -1,19 +1,26 @@
-"""Renders a resume as a clean PDF. The bundled DejaVu font covers macrons and curly quotes."""
+"""Renders a CV as a PDF in one of four looks. The bundled DejaVu font covers macrons and quotes."""
 
 from pathlib import Path
 
 from fpdf import FPDF
 
+from app.core.resume_layout import LOOKS, Block, Look, contact_line, layout_blocks
+from app.schemas.master_cv import TemplateId
 from app.schemas.tailoring import BaseSections, ContactDetails
 
 FONT_DIR = Path(__file__).parents[1] / "assets" / "fonts"
 FONT = "DejaVu"
 INK = (15, 23, 42)
 MUTED = (91, 100, 120)
-ACCENT = (29, 78, 216)
 
 
-class _ResumePdf(FPDF):
+def _rgb(hex_color: str) -> tuple[int, int, int]:
+    return tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+
+
+class _CvPdf(FPDF):
+    """Default FPDF header() and footer() are empty, so nothing is printed on the page edges."""
+
     def __init__(self) -> None:
         super().__init__(format="A4")
         self.set_margins(18, 16, 18)
@@ -22,24 +29,106 @@ class _ResumePdf(FPDF):
         self.add_font(FONT, "B", str(FONT_DIR / "DejaVuSans-Bold.ttf"))
         self.add_page()
 
-    def text_block(self, text: str, size: float = 9.5, bold: bool = False, color=INK) -> None:
-        self.set_font(FONT, "B" if bold else "", size)
-        self.set_text_color(*color)
-        self.multi_cell(0, size * 0.5, text, new_x="LMARGIN", new_y="NEXT")
+    @property
+    def text_width(self) -> float:
+        return self.w - self.l_margin - self.r_margin
 
-    def heading(self, text: str) -> None:
-        self.ln(3)
-        self.text_block(text.upper(), size=9, bold=True, color=ACCENT)
-        y = self.get_y() + 0.5
-        self.set_draw_color(*ACCENT)
-        self.line(self.l_margin, y, self.w - self.r_margin, y)
-        self.ln(2)
 
-    def bullet(self, text: str) -> None:
-        self.set_font(FONT, "", 9.5)
-        self.set_text_color(*INK)
-        self.cell(4, 4.75, "•")
-        self.multi_cell(0, 4.75, text, new_x="LMARGIN", new_y="NEXT")
+def _font(pdf: _CvPdf, size: float, bold: bool = False, color=INK) -> None:
+    pdf.set_font(FONT, "B" if bold else "", size)
+    pdf.set_text_color(*color)
+
+
+def _draw_block(pdf: _CvPdf, look: Look, block: Block, align: str) -> None:
+    body = look.body_size
+    if block.kind == "name":
+        _font(pdf, look.name_size, bold=True)
+        pdf.multi_cell(
+            0, look.name_size * 0.5, block.text, align=align, new_x="LMARGIN", new_y="NEXT"
+        )
+    elif block.kind in ("headline", "contact", "rights"):
+        size = body + 1 if block.kind == "headline" else body - 0.5
+        _font(pdf, size, color=INK if block.kind == "headline" else MUTED)
+        pdf.multi_cell(0, size * 0.5, block.text, align=align, new_x="LMARGIN", new_y="NEXT")
+    elif block.kind == "heading":
+        pdf.ln(3)
+        text = block.text.upper() if look.heading_upper else block.text
+        _font(pdf, look.heading_size, bold=True, color=_rgb(look.accent))
+        pdf.multi_cell(0, look.heading_size * 0.5, text, new_x="LMARGIN", new_y="NEXT")
+        if look.heading_rule:
+            y = pdf.get_y() + 0.5
+            pdf.set_draw_color(*_rgb(look.accent))
+            pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
+        pdf.ln(2)
+    elif block.kind == "role":
+        if block.right:
+            _role_with_dates(pdf, look, block)
+        else:
+            _font(pdf, body + 1, bold=True)
+            pdf.multi_cell(0, 5, block.text, new_x="LMARGIN", new_y="NEXT")
+        if block.sub:
+            _font(pdf, body - 0.5, color=MUTED)
+            pdf.multi_cell(0, 4.5, block.sub, new_x="LMARGIN", new_y="NEXT")
+    elif block.kind == "bullet":
+        _font(pdf, body)
+        pdf.cell(4, body * 0.5, "•")
+        pdf.multi_cell(0, body * 0.5, block.text, new_x="LMARGIN", new_y="NEXT")
+    else:  # text and entry: always left-aligned
+        _font(pdf, body)
+        pdf.multi_cell(0, body * 0.5, block.text, align="L", new_x="LMARGIN", new_y="NEXT")
+
+
+def _role_with_dates(pdf: _CvPdf, look: Look, block: Block) -> None:
+    """The dates sit on the first line, right-aligned. The title wraps inside the space left of
+    them, so a long title never runs into the dates."""
+    body = look.body_size
+    _font(pdf, body - 0.5, color=MUTED)
+    right_width = pdf.get_string_width(block.right) + 2
+    left_width = pdf.text_width - right_width
+    top = pdf.get_y()
+    pdf.set_xy(pdf.l_margin + left_width, top)
+    pdf.cell(right_width, 5, block.right, align="R")
+    _font(pdf, body + 1, bold=True)
+    pdf.set_xy(pdf.l_margin, top)
+    pdf.multi_cell(left_width, 5, block.text, new_x="LMARGIN", new_y="NEXT")
+
+
+def _first_line_mm(look: Look, block: Block) -> float:
+    """Height of the first line a block prints, in mm. Used to keep headings with their content."""
+    if block.kind == "name":
+        return look.name_size * 0.5
+    if block.kind == "heading":
+        return 3 + look.heading_size * 0.5 + 3  # space above, the line, space below
+    if block.kind == "role":
+        return 5
+    return look.body_size * 0.5
+
+
+def _keep_with_next(pdf: _CvPdf, look: Look, block: Block, following: Block | None) -> None:
+    """Start a new page when a heading or role line would be left alone at the foot of a page."""
+    needed = _first_line_mm(look, block)
+    if following is not None:
+        needed += _first_line_mm(look, following)
+    if pdf.get_y() + needed > pdf.h - pdf.b_margin:
+        pdf.add_page()
+
+
+def _draw(pdf: _CvPdf, look: Look, blocks: list[Block]) -> None:
+    align = "C" if look.name_center else "L"
+    seen_heading = False
+    for index, block in enumerate(blocks):
+        if block.kind in ("heading", "role"):
+            following = blocks[index + 1] if index + 1 < len(blocks) else None
+            _keep_with_next(pdf, look, block, following)
+        if block.kind == "heading" and not seen_heading:
+            seen_heading = True
+            if look.contact_rule:
+                pdf.ln(1)
+                pdf.set_draw_color(*_rgb(look.accent))
+                y = pdf.get_y()
+                pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
+                pdf.ln(1)
+        _draw_block(pdf, look, block, align)
 
 
 def render_resume_pdf(
@@ -47,42 +136,19 @@ def render_resume_pdf(
     resume: BaseSections | None,
     path: Path,
     fallback_text: str = "",
+    template: TemplateId = "classic",
 ) -> None:
     """Write the PDF. Without parsed sections, the resume text is laid out as it is."""
-    pdf = _ResumePdf()
-    if contact.name:
-        pdf.text_block(contact.name, size=18, bold=True)
-    details = " · ".join(value for value in (contact.email, contact.phone) if value)
-    if details:
-        pdf.text_block(details, size=9.5, color=MUTED)
-
+    look = LOOKS[template]
+    pdf = _CvPdf()
     if resume is None:
-        pdf.ln(3)
-        for line in fallback_text.splitlines():
-            if line.strip():
-                pdf.text_block(line.strip())
-        pdf.output(str(path))
-        return
-
-    if resume.summary:
-        pdf.heading("Summary")
-        pdf.text_block(resume.summary)
-    if resume.roles:
-        pdf.heading("Experience")
-        for role in resume.roles:
-            pdf.text_block(f"{role.title} — {role.employer}", size=10.5, bold=True)
-            meta = " · ".join(value for value in (role.location, role.dates) if value)
-            if meta:
-                pdf.text_block(meta, size=9, color=MUTED)
-            pdf.ln(1)
-            for bullet in role.bullets:
-                pdf.bullet(bullet.text)
-            pdf.ln(2)
-    if resume.skills:
-        pdf.heading("Skills")
-        pdf.text_block(", ".join(resume.skills))
-    if resume.education:
-        pdf.heading("Education")
-        for line in resume.education:
-            pdf.text_block(line)
+        blocks = [Block("name", contact.name or ""), Block("contact", contact_line(contact))]
+        blocks = [block for block in blocks if block.text]
+        lines = [line.strip() for line in fallback_text.splitlines()]
+        blocks += [Block("text", line) for line in lines if line]
+        align = "C" if look.name_center else "L"
+        for block in blocks:
+            _draw_block(pdf, look, block, align)
+    else:
+        _draw(pdf, look, layout_blocks(contact, resume, look.skill_separator))
     pdf.output(str(path))

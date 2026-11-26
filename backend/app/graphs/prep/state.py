@@ -3,7 +3,7 @@ from uuid import UUID
 
 from app.schemas.job import JobDraft
 from app.schemas.prep import ExploreStep, Fact, PageSource, PlanResult, PrepPack
-from app.schemas.tailoring import BaseSections
+from app.schemas.tailoring import BaseSections, ContactDetails
 
 
 class PrepState(TypedDict, total=False):
@@ -19,6 +19,7 @@ class PrepState(TypedDict, total=False):
     origin: str | None
     extra: str | None
     raw_text: str
+    contact: ContactDetails  # for redacting what the AI sees; never shown on a pack
     sections: BaseSections | None
     reused: bool
     pages: list[PageSource]  # pages read in this run, ids s1, s2, ...

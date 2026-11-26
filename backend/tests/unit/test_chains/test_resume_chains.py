@@ -104,3 +104,15 @@ def test_read_profile_with_ai_has_no_warning():
     _, warning = read_profile(RESUME_TEXT, ResumeProfileChain(ScriptedLLM(extraction)))
 
     assert warning is None
+
+
+def test_the_profile_reader_is_not_sent_the_name_or_linkedin_url():
+    text = "Alex Morgan\nlinkedin.com/in/alex-morgan-nz\nData Analyst\nPython and SQL"
+    llm = ScriptedLLM(ResumeExtraction(titles=["Data Analyst"]))
+
+    ResumeProfileChain(llm).run(text)
+
+    user = llm.calls[0]["user"]
+    assert "alex morgan" not in user.casefold()
+    assert "alex-morgan-nz" not in user.casefold()
+    assert "Data Analyst" in user

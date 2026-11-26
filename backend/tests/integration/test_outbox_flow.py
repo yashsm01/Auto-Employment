@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -451,3 +452,127 @@ def test_the_outbox_suggests_the_newest_hiring_email(client, conn):
     view = client.get("/outbox").json()
 
     assert view["to_send"][0]["suggested_to"] == "new@example.co.nz"
+
+
+def _sent_first_email(client, conn, sending):
+    app_id = _approved(client, conn)
+    client.post(f"/applications/{app_id}/send", json={"to": "jobs@example.co.nz"})
+    sender = FakeSender()
+    process_outbox(sending, sender=sender, mail=FakeMail(), now=T)
+    return app_id, sender
+
+
+def _draft_id(client, app_id) -> str:
+    drafts = client.get("/outbox").json()["drafts"]
+    assert [d["application_id"] for d in drafts] == [app_id]
+    return drafts[0]["id"]
+
+
+def test_the_application_email_carries_phone_and_whatsapp(client, conn, sending):
+    app_id = _approved(client, conn)
+    contact = {"name": "Sample Person", "phone": "021 000 0000", "whatsapp": "+64 22 111 1111"}
+    conn.execute(
+        "update resumes set content = jsonb_set(content, '{contact}', %s::jsonb) "
+        "where profile_id = %s and kind = 'base'",
+        (json.dumps(contact), PROFILE_ID),
+    )
+    conn.commit()
+    client.post(f"/applications/{app_id}/send", json={"to": "jobs@example.co.nz"})
+    sender = FakeSender()
+
+    process_outbox(sending, sender=sender, mail=FakeMail(), now=T)
+
+    assert sender.sent[0]["body"].endswith(
+        "Phone: 021 000 0000\nWhatsApp: +64 22 111 1111"
+    )
+
+
+def test_follow_up_settings_round_trip(client):
+    assert client.get("/settings/follow-ups").json() == {"mode": "auto"}
+
+    saved = client.put("/settings/follow-ups", json={"mode": "ask"})
+
+    assert saved.status_code == 200
+    assert saved.json() == {"mode": "ask"}
+    assert client.get("/settings/follow-ups").json() == {"mode": "ask"}
+    assert client.put("/settings/follow-ups", json={"mode": "sometimes"}).status_code == 422
+
+
+def test_auto_mode_still_sends_follow_ups_itself(client, conn, sending):
+    app_id, sender = _sent_first_email(client, conn, sending)
+
+    process_outbox(sending, sender=sender, mail=FakeMail(), now=T + timedelta(days=7))
+
+    assert len(sender.sent) == 2
+    assert _application(conn, app_id)["status"] == "followed_up"
+    assert client.get("/outbox").json()["drafts"] == []
+
+
+def test_ask_mode_creates_one_draft_and_sends_nothing(client, conn, sending):
+    app_id, sender = _sent_first_email(client, conn, sending)
+    assert client.put("/settings/follow-ups", json={"mode": "ask"}).status_code == 200
+
+    process_outbox(sending, sender=sender, mail=FakeMail(), now=T + timedelta(days=7))
+    process_outbox(sending, sender=sender, mail=FakeMail(), now=T + timedelta(days=8))
+
+    assert len(sender.sent) == 1
+    drafts = [r for r in _outbox(conn, app_id) if r["status"] == "draft"]
+    assert [(d["kind"], d["attachment_path"]) for d in drafts] == [("follow_up", None)]
+    assert _application(conn, app_id)["next_follow_up"] is None
+    assert _application(conn, app_id)["follow_ups"] == 0
+    assert _draft_id(client, app_id)
+
+
+def test_send_queues_the_draft_and_the_next_run_sends_it(client, conn, sending):
+    app_id, sender = _sent_first_email(client, conn, sending)
+    client.put("/settings/follow-ups", json={"mode": "ask"})
+    process_outbox(sending, sender=sender, mail=FakeMail(), now=T + timedelta(days=7))
+    draft_id = _draft_id(client, app_id)
+
+    response = client.post(f"/outbox/{draft_id}/send")
+
+    assert response.status_code == 200
+    assert response.json()["drafts"] == []
+    assert [q["id"] for q in response.json()["queued"]] == [draft_id]
+    assert client.post(f"/outbox/{draft_id}/send").status_code == 404
+    process_outbox(sending, sender=sender, mail=FakeMail(), now=T + timedelta(days=8))
+    assert len(sender.sent) == 2
+    assert sender.sent[1]["subject"] == "Re: Application for Data Engineer – Sample Person"
+    assert _application(conn, app_id)["follow_ups"] == 1
+    assert _application(conn, app_id)["status"] == "followed_up"
+
+
+def test_sending_something_that_is_not_a_draft_is_not_found(client, conn, sending):
+    app_id, _ = _sent_first_email(client, conn, sending)
+    sent_id = _outbox(conn, app_id)[0]["id"]
+
+    assert client.post(f"/outbox/{sent_id}/send").status_code == 404
+
+
+def test_skip_cancels_the_draft_and_stops_follow_ups(client, conn, sending):
+    app_id, sender = _sent_first_email(client, conn, sending)
+    client.put("/settings/follow-ups", json={"mode": "ask"})
+    process_outbox(sending, sender=sender, mail=FakeMail(), now=T + timedelta(days=7))
+    draft_id = _draft_id(client, app_id)
+
+    assert client.post(f"/outbox/{draft_id}/cancel").status_code == 200
+
+    assert [r["status"] for r in _outbox(conn, app_id) if str(r["id"]) == draft_id] == ["cancelled"]
+    assert _application(conn, app_id)["next_follow_up"] is None
+    assert client.get("/outbox").json()["drafts"] == []
+    process_outbox(sending, sender=sender, mail=FakeMail(), now=T + timedelta(days=14))
+    assert len(sender.sent) == 1
+
+
+def test_a_reply_cancels_a_waiting_draft(client, conn, sending):
+    app_id, sender = _sent_first_email(client, conn, sending)
+    client.put("/settings/follow-ups", json={"mode": "ask"})
+    process_outbox(sending, sender=sender, mail=FakeMail(), now=T + timedelta(days=7))
+    draft_id = _draft_id(client, app_id)
+    mail = FakeMail(replies_from=("jobs@example.co.nz",))
+
+    process_outbox(sending, sender=sender, mail=mail, now=T + timedelta(days=8))
+
+    assert _application(conn, app_id)["status"] == "replied"
+    assert [r["status"] for r in _outbox(conn, app_id) if str(r["id"]) == draft_id] == ["cancelled"]
+    assert client.post(f"/outbox/{draft_id}/send").status_code == 404

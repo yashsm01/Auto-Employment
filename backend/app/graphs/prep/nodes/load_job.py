@@ -7,7 +7,6 @@ from app.graphs.prep.deps import get_deps
 from app.graphs.prep.state import PrepState
 from app.repositories import prep_repo
 from app.schemas.prep import Fact, PageSource
-from app.schemas.tailoring import BaseSections
 from app.services import resume_build_service
 
 REUSE_DAYS = 30
@@ -69,7 +68,8 @@ def run(state: PrepState, config: RunnableConfig) -> PrepState:
         "origin": regions[0] if regions else None,
         "extra": pack["extra"] if pack else None,
         "raw_text": context["raw_text"],
-        "sections": BaseSections(**cached) if cached else None,
+        "contact": context["ai_contact"],
+        "sections": resume_build_service.usable_sections(cached),
         "reused": bool(facts),
         "facts": facts,
         "dropped": [],

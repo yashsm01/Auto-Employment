@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   decideResume,
+  decideSkill,
   getReviewList,
   getTailoredResume,
   regenerateResume,
@@ -62,4 +63,20 @@ export function useResumeDecision(id: string) {
 export function useRegenerate(id: string) {
   const refresh = useRefresh(id);
   return useMutation({ mutationFn: () => regenerateResume(id), onSettled: refresh });
+}
+
+export type SkillDecision = { skill: string; decision: "have" | "no" | null };
+
+/** Changing a skill decision rewrites the CV, so the resume, shortlist and master CV refresh. */
+export function useSkillDecision(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ skill, decision }: SkillDecision) => decideSkill(skill, decision),
+    onSettled: () =>
+      Promise.all(
+        [["tailored", id], ["shortlist"], ["master-cv"]].map((queryKey) =>
+          client.invalidateQueries({ queryKey }),
+        ),
+      ),
+  });
 }

@@ -1,9 +1,11 @@
 """Reads uploaded resumes safely. Only PDF and Word (.docx) files are accepted."""
 
 import io
+import json
 import re
 import zipfile
 from pathlib import PurePosixPath
+from typing import Any
 
 from docx import Document
 from pypdf import PdfReader
@@ -20,6 +22,7 @@ MAX_TEXT_CHARS = 100_000
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _PHONE = re.compile(r"(?<![\w.])\+?\(?\d[\d \t().-]{6,}\d(?!\w)")
 _YEAR_RANGE = re.compile(r"\d{4}\s*[-–]\s*\d{4}")
+_LINKEDIN = re.compile(r"(?:https?://)?(?:www\.)?linkedin\.com/in/[\w%.-]+", re.IGNORECASE)
 
 
 def file_suffix(filename: str) -> str:
@@ -107,7 +110,40 @@ def extract_contact_details(text: str) -> ContactDetails:
         ):
             name = line
             break
-    return ContactDetails(name=name, email=email.group(0) if email else None, phone=phone)
+    linkedin = _LINKEDIN.search(text)
+    return ContactDetails(
+        name=name,
+        email=email.group(0) if email else None,
+        phone=phone,
+        linkedin=linkedin.group(0) if linkedin else None,
+    )
+
+
+def contact_for_text(stored: ContactDetails | None, text: str) -> ContactDetails:
+    """The stored contact, with each blank field filled from the text.
+
+    Used before anything is sent to an AI model, so a blank stored name or LinkedIn link does not
+    leave the name or link in the text unredacted.
+    """
+    found = extract_contact_details(text)
+    if stored is None:
+        return found
+    merged: dict[str, Any] = {}
+    for field in ContactDetails.model_fields:
+        value = getattr(stored, field)
+        if isinstance(value, str) and value.strip():
+            merged[field] = value.strip()
+        else:
+            merged[field] = getattr(found, field)
+    return ContactDetails(**merged)
+
+
+def ai_resume_json(value: Any, contact: ContactDetails | None) -> str:
+    """A resume as JSON for an AI model: no referees, no role locations, no contact details."""
+    data = value.model_dump(exclude={"referees"})
+    for role in data.get("roles", []):
+        role.pop("location", None)
+    return redact_contact_details(json.dumps(data, ensure_ascii=False), contact)
 
 
 def _mask_phone(match: re.Match[str]) -> str:
@@ -118,6 +154,55 @@ def _mask_phone(match: re.Match[str]) -> str:
     return "[phone removed]"
 
 
-def redact_contact_details(text: str) -> str:
-    """Remove email addresses and phone numbers before text goes to an AI provider."""
+_MIN_NAME_LENGTH = 4  # Shorter names match too many ordinary words.
+
+
+def _digits_key(value: str) -> str:
+    """Digits only, with the NZ country code and trunk zero dropped, for comparing numbers."""
+    digits = re.sub(r"\D", "", value)
+    if digits.startswith("64"):
+        digits = digits[2:]
+    return digits.lstrip("0")
+
+
+_LINKEDIN_HANDLE = re.compile(r"linkedin\.com/in/([^/?#\s]+)", re.IGNORECASE)
+
+
+def _strip_known_contact(text: str, contact: ContactDetails | None) -> str:
+    """Remove the stored name, LinkedIn URL and WhatsApp number from the text."""
+    if contact is None:
+        return text
+    words = (contact.name or "").split()
+    if len(" ".join(words)) >= _MIN_NAME_LENGTH:
+        # The whole name as one phrase, whitespace may vary, whole words only. Edges use
+        # lookarounds rather than  so a name ending in punctuation ("Jr.") still matches.
+        phrase = r"\s+".join(re.escape(word) for word in words)
+        text = re.sub(rf"(?<!\w){phrase}(?!\w)", "", text, flags=re.IGNORECASE)
+    if contact.linkedin:
+        handle = _LINKEDIN_HANDLE.search(contact.linkedin)
+        if handle:
+            # Any scheme or www prefix, any case, and a trailing slash.
+            pattern = (
+                r"(?:https?://)?(?:www\.)?linkedin\.com/in/"
+                rf"{re.escape(handle.group(1))}(?![\w%-]|\.\w)/?"
+            )
+            text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+        else:
+            url = re.sub(r"^https?://(www\.)?", "", contact.linkedin.strip(), flags=re.IGNORECASE)
+            if url:
+                text = re.sub(re.escape(url), "", text, flags=re.IGNORECASE)
+    key = _digits_key(contact.whatsapp or "")
+    if len(key) >= 6:
+        text = _PHONE.sub(lambda m: "" if _digits_key(m.group(0)) == key else m.group(0), text)
+    return text
+
+
+def redact_contact_details(text: str, contact: ContactDetails | None = None) -> str:
+    """Remove contact details before text goes to an AI provider.
+
+    Email addresses and phone numbers are always masked. When the stored contact is given, its
+    name, LinkedIn URL and WhatsApp number are removed too. Location and work-rights wording in
+    the body are left, because roles need their locations.
+    """
+    text = _strip_known_contact(text, contact)
     return _PHONE.sub(_mask_phone, _EMAIL.sub("[email removed]", text))

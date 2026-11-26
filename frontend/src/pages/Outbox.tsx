@@ -11,6 +11,7 @@ import {
   recordOutcome,
   retryEmail,
   saveDailyLimit,
+  sendDraft,
   type ToSendItem,
   type WaitingItem,
 } from "../api/outbox";
@@ -144,6 +145,29 @@ function EmailItem({ item, failed }: { item: OutboxItem; failed: boolean }) {
   );
 }
 
+function DraftItem({ item }: { item: OutboxItem }) {
+  const send = useOutboxAction(() => sendDraft(item.id));
+  const skip = useOutboxAction(() => cancelEmail(item.id));
+  const busy = send.isPending || skip.isPending;
+  return (
+    <article aria-label={`${item.subject} to ${item.to}`} className="card flex flex-col gap-2">
+      <JobHeading title={item.title} company={item.company} id={item.application_id} />
+      <span className="text-sm">
+        Follow-up to <b>{item.to}</b> · {item.subject}
+      </span>
+      <div className="flex flex-wrap gap-2.5">
+        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => send.mutate(undefined)}>
+          Send
+        </button>
+        <button type="button" className="btn" disabled={busy} onClick={() => skip.mutate(undefined)}>
+          Skip
+        </button>
+      </div>
+      {(send.error ?? skip.error) && <ErrorNotice message={(send.error ?? skip.error)!.message} />}
+    </article>
+  );
+}
+
 function WaitingRow({ item }: { item: WaitingItem }) {
   const outcome = useOutboxAction((action: Outcome) => recordOutcome(item.application_id, action));
   const resend = useOutboxAction((to: string) => sendAfterCall(item.application_id, to));
@@ -249,7 +273,12 @@ export default function Outbox() {
   if (error) return <ErrorNotice message={error.message} />;
 
   const empty =
-    data.to_send.length + data.queued.length + data.failed.length + data.waiting.length === 0;
+    data.to_send.length +
+      data.queued.length +
+      data.failed.length +
+      data.waiting.length +
+      data.drafts.length ===
+    0;
 
   return (
     <>
@@ -294,6 +323,16 @@ export default function Outbox() {
         <Section title="Failed">
           {data.failed.map((item) => (
             <EmailItem key={item.id} item={item} failed />
+          ))}
+        </Section>
+      )}
+      {data.drafts.length > 0 && (
+        <Section title="Follow-ups waiting for you">
+          <p className="m-0 text-[13px] text-muted">
+            Send queues this follow-up now. Skip stops follow-ups for this job.
+          </p>
+          {data.drafts.map((item) => (
+            <DraftItem key={item.id} item={item} />
           ))}
         </Section>
       )}

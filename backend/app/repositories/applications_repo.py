@@ -7,6 +7,7 @@ from app.schemas.job import ScoreResult
 
 _CARD_COLUMNS = """
     a.id, a.status, a.score, a.matched_skills, a.missing_skills, a.score_reason,
+    a.required_skills, a.preferred_skills, a.requirements_split,
     j.title, j.location, j.region, j.salary_min, j.salary_max, j.source, j.external_id,
     j.url,
     coalesce(c.name, 'Unknown employer') as company
@@ -30,12 +31,13 @@ def record_score(
         """
         insert into applications (
             profile_id, job_id, score, matched_skills, missing_skills, score_reason, status,
-            similarity
-        ) values (%s, %s, %s, %s, %s, %s, %s, %s)
+            similarity, required_skills, preferred_skills, requirements_split
+        ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         returning id
         """,
         (profile_id, job_id, result.score, result.matched_skills, result.missing_skills,
-         result.reason, status, similarity),
+         result.reason, status, similarity, result.required_skills, result.preferred_skills,
+         result.requirements_split),
     ).fetchone()
     return row["id"]
 
@@ -145,6 +147,20 @@ def detail(
         from applications a
         join jobs j on j.id = a.job_id
         left join companies c on c.id = j.company_id
+        where a.id = %s and a.profile_id = %s
+        """,
+        (application_id, profile_id),
+    ).fetchone()
+
+
+def requirement_row(
+    conn: psycopg.Connection, profile_id: UUID | str, application_id: UUID | str
+) -> dict[str, Any] | None:
+    return conn.execute(
+        """
+        select a.required_skills, a.preferred_skills, a.requirements_split,
+               a.matched_skills, a.missing_skills
+        from applications a
         where a.id = %s and a.profile_id = %s
         """,
         (application_id, profile_id),

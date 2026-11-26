@@ -12,9 +12,18 @@ from app.core.config import Settings
 from app.core.documents import extract_contact_details
 from app.core.emails import find_emails, is_valid_email
 from app.core.errors import BadRequest, Conflict, NotFound
+from app.core.phones import nz_e164
 from app.core.workdays import add_working_days, nz_day_start, nz_today
 from app.repositories import calls_repo, events_repo, outbox_repo, resumes_repo
-from app.schemas.outbox import DoneItem, OutboxItem, OutboxView, ToSendItem, WaitingItem
+from app.schemas.outbox import (
+    DoneItem,
+    FollowUpSettings,
+    OutboxItem,
+    OutboxView,
+    ToSendItem,
+    WaitingItem,
+)
+from app.schemas.tailoring import ContactDetails
 from app.services import resume_review_service
 from app.services.application_service import safe_url
 
@@ -31,14 +40,63 @@ CANCELLED_BY = {
 _FILE_UNSAFE = re.compile(r'[\\/:*?"<>|]+')
 
 
-def contact_name(conn: psycopg.Connection, profile_id: UUID | str) -> str | None:
+def contact_details(conn: psycopg.Connection, profile_id: UUID | str) -> ContactDetails:
+    """The user's own contact from the base resume: stored details, else read from its text."""
     base = resumes_repo.latest_base(conn, profile_id)
     content = base["content"] if base else {}
     contact = content.get("contact")
     if contact:
-        return contact.get("name")
+        return ContactDetails(**contact)
     text = content.get("text")
-    return extract_contact_details(text).name if text else None
+    return extract_contact_details(text) if text else ContactDetails()
+
+
+def contact_name(conn: psycopg.Connection, profile_id: UUID | str) -> str | None:
+    return contact_details(conn, profile_id).name
+
+
+def _digits(value: str) -> str:
+    return re.sub(r"\D", "", value)
+
+
+def _same_number(a: str, b: str) -> bool:
+    """The same NZ number written two ways; other formats are compared by their digits."""
+    e164_a, e164_b = nz_e164(a), nz_e164(b)
+    if e164_a and e164_b:
+        return e164_a == e164_b
+    return bool(_digits(a)) and _digits(a) == _digits(b)
+
+
+def _name_line(name: str | None) -> str:
+    return f"Ngā mihi,\n{name}" if name else "Ngā mihi"
+
+
+def signature(contact: ContactDetails) -> str:
+    """The sign-off for a message from the user: the name, then phone and WhatsApp."""
+    name = (contact.name or "").strip() or None
+    phone = (contact.phone or "").strip()
+    whatsapp = (contact.whatsapp or "").strip()
+    lines = [_name_line(name)]
+    if phone and whatsapp and _same_number(phone, whatsapp):
+        lines.append(f"Phone and WhatsApp: {phone}")
+    else:
+        if phone:
+            lines.append(f"Phone: {phone}")
+        if whatsapp:
+            lines.append(f"WhatsApp: {whatsapp}")
+    return "\n".join(lines)
+
+
+def sign_cover_note(body: str, contact: ContactDetails) -> str:
+    """Swap the cover note's sign-off for the full signature. A note with no usual sign-off
+    gets the phone and WhatsApp lines added at the end instead."""
+    name = (contact.name or "").strip() or None
+    ending = _name_line(name)
+    text = body.rstrip()
+    if text.endswith(ending):
+        return text[: -len(ending)] + signature(contact)
+    numbers = signature(contact)[len(ending):]
+    return f"{text}\n\n{numbers.strip()}" if numbers.strip() else body
 
 
 def _one_line(text: str | None) -> str:
@@ -56,17 +114,16 @@ def attachment_name(title: str, name: str | None) -> str:
     return f"{_one_line(_FILE_UNSAFE.sub(' ', stem))}.pdf"
 
 
-def follow_up_body(title: str, sent_on: date, name: str | None, number: int) -> str:
+def follow_up_body(title: str, sent_on: date, contact: ContactDetails, number: int) -> str:
     opening = (
         f"I'm following up on my application for the {title} role, sent on "
         f"{sent_on.strftime('%d %B %Y').lstrip('0')}."
         if number == 1
         else f"I'm following up once more on my application for the {title} role."
     )
-    sign_off = f"Ngā mihi,\n{name}" if name else "Ngā mihi"
     return (
         f"Kia ora,\n\n{opening} I'm still very interested and would welcome the chance to "
-        f"talk. My resume is attached to my earlier email below.\n\n{sign_off}"
+        f"talk. My resume is attached to my earlier email below.\n\n{signature(contact)}"
     )
 
 
@@ -117,16 +174,16 @@ def queue_email(
         pdf = resume_review_service.pdf_path(conn, profile_id, row["resume_id"],
                                              settings.upload_dir)
         resume = resumes_repo.get_tailored(conn, profile_id, row["resume_id"])
-        name = contact_name(conn, profile_id)
+        contact = contact_details(conn, profile_id)
         outbox_repo.queue(
             conn,
             application_id=application_id,
             kind="application",
             to=address,
-            subject=subject_for(row["title"], name),
-            body=resume["content"].get("cover_note") or "",
+            subject=subject_for(row["title"], contact.name),
+            body=sign_cover_note(resume["content"].get("cover_note") or "", contact),
             attachment_path=pdf,
-            attachment_name=attachment_name(row["title"], name),
+            attachment_name=attachment_name(row["title"], contact.name),
             reply_to_message_id=None,
             scheduled_at=now,
         )
@@ -188,13 +245,34 @@ def cancel(conn: psycopg.Connection, profile_id: UUID | str, outbox_id: UUID | s
         row = outbox_repo.get(conn, profile_id, outbox_id)
         if row is None:
             raise NotFound("Email not found")
-        if row["status"] not in ("queued", "failed"):
+        if row["status"] not in ("queued", "failed", "draft"):
             raise Conflict("Only emails that have not been sent can be cancelled.")
         outbox_repo.set_status(conn, outbox_id, "cancelled")
         if row["kind"] == "application":
             outbox_repo.set_method(conn, row["application_id"], None)
         else:
             outbox_repo.stop_follow_ups(conn, row["application_id"])
+
+
+def send_draft(conn: psycopg.Connection, profile_id: UUID | str, outbox_id: UUID | str,
+               now: datetime) -> None:
+    """Approve a follow-up that was waiting for the user: it goes out on the next run."""
+    with conn.transaction():
+        row = outbox_repo.get(conn, profile_id, outbox_id)
+        if row is None or row["status"] != "draft":
+            raise NotFound("Follow-up not found")
+        outbox_repo.release_draft(conn, outbox_id, now)
+
+
+def follow_up_settings(conn: psycopg.Connection, profile_id: UUID | str) -> FollowUpSettings:
+    stored = outbox_repo.follow_up_settings(conn, profile_id)
+    return FollowUpSettings(mode="ask" if stored.get("mode") == "ask" else "auto")
+
+
+def save_follow_up_settings(conn: psycopg.Connection, profile_id: UUID | str,
+                            value: FollowUpSettings) -> FollowUpSettings:
+    outbox_repo.save_follow_up_settings(conn, profile_id, {"mode": value.mode})
+    return value
 
 
 def retry(conn: psycopg.Connection, profile_id: UUID | str, outbox_id: UUID | str,
@@ -259,6 +337,7 @@ def view(conn: psycopg.Connection, profile_id: UUID | str, settings: Settings,
         queued=[_item(r) for r in outbox_repo.outbox_rows(conn, profile_id, "queued")],
         failed=[_item(r) for r in outbox_repo.outbox_rows(conn, profile_id, "failed")],
         waiting=waiting,
+        drafts=[_item(r) for r in outbox_repo.outbox_rows(conn, profile_id, "draft")],
         replied=[
             DoneItem(application_id=r["id"], title=r["title"], company=r["company"],
                      status=r["status"], updated_at=r["updated_at"])

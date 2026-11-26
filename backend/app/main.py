@@ -9,7 +9,9 @@ from app.api import (
     applications,
     auto,
     calls,
+    coverage,
     employers,
+    master_cv,
     outbox,
     pipeline,
     prep,
@@ -74,6 +76,8 @@ def create_app(run_scheduler: bool = False) -> FastAPI:
     app.include_router(calls.router)
     app.include_router(auto.router)
     app.include_router(runs.router)
+    app.include_router(master_cv.router)
+    app.include_router(coverage.router)
     return app
 
 

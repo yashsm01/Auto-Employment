@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 
+import { type FollowUpMode, getFollowUps, saveFollowUps } from "../api/outbox";
 import {
   type AutoModeView,
   type CallItem,
@@ -144,6 +145,50 @@ function AutoModeForm({ value }: { value: AutoModeView }) {
   );
 }
 
+const FOLLOW_UP_OPTIONS: { mode: FollowUpMode; label: string }[] = [
+  { mode: "auto", label: "Send follow-ups automatically" },
+  { mode: "ask", label: "Ask me before each follow-up" },
+];
+
+function FollowUps() {
+  const client = useQueryClient();
+  const { data, error, isPending } = useQuery({
+    queryKey: ["follow-up-settings"],
+    queryFn: getFollowUps,
+  });
+  const save = useMutation({
+    mutationFn: saveFollowUps,
+    onSuccess: (saved) => client.setQueryData(["follow-up-settings"], saved),
+  });
+  if (isPending) return null;
+  if (error) return <ErrorNotice message={error.message} />;
+
+  return (
+    <Card title="Follow-ups">
+      <p className="m-0 text-sm">
+        A polite follow-up goes out 5 working days after an emailed application with no reply.
+      </p>
+      <div role="radiogroup" aria-label="Follow-up mode" className="flex flex-col gap-2">
+        {FOLLOW_UP_OPTIONS.map((option) => (
+          <label key={option.mode} className="flex min-h-9 items-center gap-2 text-sm font-semibold">
+            <input
+              type="radio"
+              name="follow-up-mode"
+              value={option.mode}
+              checked={data.mode === option.mode}
+              disabled={save.isPending}
+              onChange={() => save.mutate(option.mode)}
+            />
+            {option.label}
+          </label>
+        ))}
+      </div>
+      {save.isSuccess && <span className="text-sm text-ok">Follow-up setting saved.</span>}
+      {save.error && <ErrorNotice message={save.error.message} />}
+    </Card>
+  );
+}
+
 function AutoMode() {
   const { data, error, isPending } = useQuery({
     queryKey: ["auto-mode"],
@@ -151,7 +196,12 @@ function AutoMode() {
   });
   if (isPending) return null;
   if (error) return <ErrorNotice message={error.message} />;
-  return <AutoModeForm value={data} />;
+  return (
+    <>
+      <AutoModeForm value={data} />
+      <FollowUps />
+    </>
+  );
 }
 
 const LINK_POLL_MS = 3000;

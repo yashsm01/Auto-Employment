@@ -67,6 +67,23 @@ def _term_pattern(term: str) -> re.Pattern[str]:
     return re.compile(rf"(?<![\w+#]){re.escape(term)}s?(?![\w+#])", re.IGNORECASE)
 
 
+def find_term(text: str, term: str) -> str | None:
+    """The text as it appears where term matches (whole word or phrase, plural allowed)."""
+    match = _term_pattern(term).search(text)
+    return match.group(0) if match else None
+
+
 def contains_term(text: str, term: str) -> bool:
     """True when term appears as a whole word or phrase, allowing a plural."""
-    return _term_pattern(term).search(text) is not None
+    return find_term(text, term) is not None
+
+
+def mentions_term(text: str, term: str) -> bool:
+    """Like contains_term, except a term of two characters or fewer must match its exact case.
+
+    So "Go" is not found in "we go live", but is found in "Go and Python". Only skill matching
+    uses this; contains_term is unchanged for everything else.
+    """
+    if len(term.strip()) > 2:
+        return contains_term(text, term)
+    return re.search(rf"(?<![\w+#]){re.escape(term.strip())}s?(?![\w+#])", text) is not None

@@ -4,10 +4,10 @@ import re
 
 from pydantic import BaseModel, Field
 
-from app.core.documents import redact_contact_details
+from app.core.documents import contact_for_text, redact_contact_details
 from app.core.normalize import contains_term
 from app.providers.llm.base import LLMProvider
-from app.schemas.tailoring import BaseSections, Bullet, RoleSection
+from app.schemas.tailoring import BaseSections, Bullet, ContactDetails, RoleSection
 
 SUPPORTED_SHARE = 0.85
 _TOKEN = re.compile(r"[a-z0-9]{2,}")
@@ -54,10 +54,10 @@ class ResumeSectionsChain:
     def __init__(self, llm: LLMProvider) -> None:
         self._llm = llm
 
-    def run(self, text: str) -> BaseSections:
+    def run(self, text: str, contact: ContactDetails | None = None) -> BaseSections:
         extraction = self._llm.parse(
             system=SYSTEM_PROMPT,
-            user=f"<resume>\n{redact_contact_details(text)}\n</resume>",
+            user=f"<resume>\n{redact_contact_details(text, contact_for_text(contact, text))}\n</resume>",
             schema=SectionsExtraction,
             max_tokens=16000,
         )

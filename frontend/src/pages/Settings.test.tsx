@@ -44,6 +44,7 @@ describe("Settings", () => {
     mockApi({
       "GET /settings/phase4": () => ({ body: view() }),
       "GET /auto-mode": () => ({ body: autoMode }),
+      "GET /settings/follow-ups": () => ({ body: { mode: "auto" } }),
     });
     renderPage(<Settings />);
 
@@ -64,6 +65,7 @@ describe("Settings", () => {
     const calls = mockApi({
       "GET /settings/phase4": () => ({ body: view() }),
       "GET /auto-mode": () => ({ body: autoMode }),
+      "GET /settings/follow-ups": () => ({ body: { mode: "auto" } }),
       "POST /calls/test": () => ({ body: view() }),
       "POST /notifications/test": () => ({ body: view() }),
     });
@@ -82,6 +84,7 @@ describe("Settings", () => {
   it("explains what to set up when nothing is connected", async () => {
     mockApi({
       "GET /auto-mode": () => ({ body: autoMode }),
+      "GET /settings/follow-ups": () => ({ body: { mode: "auto" } }),
       "GET /settings/phase4": () => ({
         body: view({
           calls: { configured: false, enabled: false, used_this_month: 0, monthly_limit: 5 },
@@ -104,6 +107,7 @@ describe("Settings", () => {
     const calls = mockApi({
       "GET /settings/phase4": () => ({ body: view() }),
       "GET /auto-mode": () => ({ body: autoMode }),
+      "GET /settings/follow-ups": () => ({ body: { mode: "auto" } }),
       "PUT /auto-mode": (body) => ({ body: { ...autoMode, ...(body as object) } }),
     });
     renderPage(<Settings />);
@@ -136,6 +140,7 @@ describe("Settings", () => {
     const calls = mockApi({
       "GET /settings/phase4": () => ({ body: view() }),
       "GET /auto-mode": () => ({ body: autoMode }),
+      "GET /settings/follow-ups": () => ({ body: { mode: "auto" } }),
       "GET /whatsapp/status": () => ({ body: link }),
       "POST /whatsapp/logout": () => ({ body: { state: "logged_out" } }),
     });
@@ -160,6 +165,7 @@ describe("Settings", () => {
     mockApi({
       "GET /settings/phase4": () => ({ body: view() }),
       "GET /auto-mode": () => ({ body: autoMode }),
+      "GET /settings/follow-ups": () => ({ body: { mode: "auto" } }),
       "GET /whatsapp/status": () => ({
         body: { state: "offline", qr: null, me: null, error: "did not answer" },
       }),
@@ -169,5 +175,26 @@ describe("Settings", () => {
     await userEvent.click(await screen.findByRole("tab", { name: "WhatsApp" }));
 
     expect(await screen.findByText(/npm start/)).toBeInTheDocument();
+  });
+
+  it("the follow-up switch saves ask", async () => {
+    const calls = mockApi({
+      "GET /settings/phase4": () => ({ body: view() }),
+      "GET /auto-mode": () => ({ body: autoMode }),
+      "GET /settings/follow-ups": () => ({ body: { mode: "auto" } }),
+      "PUT /settings/follow-ups": (body) => ({ body }),
+    });
+    renderPage(<Settings />);
+
+    const auto = await screen.findByRole("radio", { name: "Send follow-ups automatically" });
+    expect(auto).toBeChecked();
+    await userEvent.click(screen.getByRole("radio", { name: "Ask me before each follow-up" }));
+
+    expect(await screen.findByText("Follow-up setting saved.")).toBeInTheDocument();
+    expect(calls).toContainEqual({
+      method: "PUT",
+      path: "/settings/follow-ups",
+      body: { mode: "ask" },
+    });
   });
 });

@@ -4,10 +4,11 @@ Everything read from the web, the job post or the user is wrapped in tags as dat
 into a system prompt.
 """
 
+from app.core.documents import ai_resume_json, redact_contact_details
 from app.providers.llm.base import LLMProvider
 from app.schemas.job import JobDraft
 from app.schemas.prep import ExploreStep, ExtractResult, Fact, PageSource, PlanResult, WriteDraft
-from app.schemas.tailoring import BaseSections
+from app.schemas.tailoring import BaseSections, ContactDetails
 
 MAX_POST_CHARS = 12_000
 MAX_PAGE_CHARS = 24_000  # about 6,000 tokens
@@ -157,8 +158,13 @@ class WriteChain(_Chain):
         facts: list[Fact],
         sources: list[PageSource],
         origin_link: str | None,
+        contact: ContactDetails | None = None,
     ) -> WriteDraft:
-        resume = sections.model_dump_json() if sections else resume_text
+        # Parsed sections go without role locations and referees. Raw text is redacted instead.
+        if sections:
+            resume = ai_resume_json(sections, contact)
+        else:
+            resume = redact_contact_details(resume_text, contact)
         fact_lines = "\n".join(f"[{f.source_id}] ({f.kind}) {f.text}" for f in facts) or "None"
         source_lines = "\n".join(f"[{p.id}] {p.title}" for p in sources)
         user = (

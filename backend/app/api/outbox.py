@@ -4,7 +4,13 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks
 
 from app.core.deps import ConnDep, ProfileIdDep, SettingsDep
-from app.schemas.outbox import OutboxSettings, OutboxView, OutcomeRequest, SendRequest
+from app.schemas.outbox import (
+    FollowUpSettings,
+    OutboxSettings,
+    OutboxView,
+    OutcomeRequest,
+    SendRequest,
+)
 from app.services import outbox_service
 from app.workers.outbox_job import process_outbox
 
@@ -67,6 +73,34 @@ def application_outcome(
         conn, profile_id, application_id, body.action, datetime.now(UTC)
     )
     conn.commit()
+    return _view(conn, profile_id, settings)
+
+
+@router.get("/settings/follow-ups")
+def get_follow_up_settings(conn: ConnDep, profile_id: ProfileIdDep) -> FollowUpSettings:
+    return outbox_service.follow_up_settings(conn, profile_id)
+
+
+@router.put("/settings/follow-ups")
+def save_follow_up_settings(
+    body: FollowUpSettings, conn: ConnDep, profile_id: ProfileIdDep
+) -> FollowUpSettings:
+    saved = outbox_service.save_follow_up_settings(conn, profile_id, body)
+    conn.commit()
+    return saved
+
+
+@router.post("/outbox/{outbox_id}/send")
+def send_follow_up(
+    outbox_id: UUID,
+    conn: ConnDep,
+    profile_id: ProfileIdDep,
+    settings: SettingsDep,
+    background: BackgroundTasks,
+) -> OutboxView:
+    outbox_service.send_draft(conn, profile_id, outbox_id, datetime.now(UTC))
+    conn.commit()
+    background.add_task(process_outbox, settings)
     return _view(conn, profile_id, settings)
 
 

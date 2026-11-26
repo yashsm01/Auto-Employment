@@ -152,6 +152,30 @@ def add_base_resume(
     )
 
 
+def resume_terms(conn: psycopg.Connection, resume_id: UUID) -> dict[str, Any] | None:
+    return conn.execute(
+        "select titles, skills, tools from resume_profiles where resume_id = %s", (resume_id,)
+    ).fetchone()
+
+
+def write_resume_terms(
+    conn: psycopg.Connection,
+    resume_id: UUID,
+    titles: list[str],
+    skills: list[dict[str, Any]],
+    tools: list[str],
+) -> None:
+    conn.execute(
+        "update resume_profiles set titles = %s, skills = %s, tools = %s, updated_at = now() "
+        "where resume_id = %s",
+        (titles, Jsonb(skills), tools, resume_id),
+    )
+
+
+def set_full_name(conn: psycopg.Connection, profile_id: UUID | str, name: str) -> None:
+    conn.execute("update profiles set full_name = %s where id = %s", (name, profile_id))
+
+
 def update_profile(conn: psycopg.Connection, profile_id: UUID, update: ProfileUpdate) -> None:
     conn.execute(
         """
@@ -188,7 +212,9 @@ def update_profile(conn: psycopg.Connection, profile_id: UUID, update: ProfileUp
         conn.execute(
             """
             update resumes
-            set content = content || jsonb_build_object('contact', %s::jsonb)
+            set content = content || jsonb_build_object(
+                'contact', coalesce(content -> 'contact', '{}'::jsonb) || %s::jsonb
+            )
             where id = (
                 select id from resumes
                 where profile_id = %s and kind = 'base'
@@ -196,7 +222,7 @@ def update_profile(conn: psycopg.Connection, profile_id: UUID, update: ProfileUp
                 limit 1
             )
             """,
-            (Jsonb(update.contact.model_dump()), profile_id),
+            (Jsonb(update.contact.model_dump(exclude_unset=True)), profile_id),
         )
         if update.contact.name:
             conn.execute(

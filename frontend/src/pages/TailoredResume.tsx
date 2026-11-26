@@ -3,11 +3,13 @@ import { Link, useParams } from "react-router-dom";
 
 import { apiUrl } from "../api/client";
 import type { ResumeSections, TailoredResumeView } from "../api/resumes";
+import CoveragePanel from "../components/CoveragePanel";
 import { ErrorNotice, InfoNotice, SuccessNotice } from "../components/Notice";
 import {
   useRegenerate,
   useResumeDecision,
   useSaveCoverNote,
+  useSkillDecision,
   useTailoredResume,
 } from "../hooks/useResumes";
 
@@ -105,18 +107,39 @@ function CoverNote({ view, editable }: { view: TailoredResumeView; editable: boo
   );
 }
 
+const DECISION_MESSAGE = {
+  have: (skill: string) => `Added ${skill} to your CV.`,
+  no: (skill: string) => `Noted. ${skill} stays missing.`,
+  undo: () => "Undone.",
+};
+
 export default function TailoredResume() {
   const { id = "" } = useParams();
   const { data: view, error, isPending } = useTailoredResume(id);
   const decision = useResumeDecision(id);
   const regenerate = useRegenerate(id);
+  const skillDecision = useSkillDecision(id);
+  const [coverageMessage, setCoverageMessage] = useState<string | null>(null);
 
   if (isPending) return <p className="text-muted">Loading the tailored resume…</p>;
   if (error) return <ErrorNotice message={error.message} />;
 
   const changed = new Set(view.changed_ids);
   const ready = view.status === "ready";
-  const problem = decision.error ?? regenerate.error;
+  const problem = decision.error ?? regenerate.error ?? skillDecision.error;
+
+  const decideSkill = (skill: string, choice: "have" | "no" | null) => {
+    setCoverageMessage(null);
+    skillDecision.mutate(
+      { skill, decision: choice },
+      {
+        onSuccess: () =>
+          setCoverageMessage(
+            choice === null ? DECISION_MESSAGE.undo() : DECISION_MESSAGE[choice](skill),
+          ),
+      },
+    );
+  };
 
   return (
     <>
@@ -139,6 +162,11 @@ export default function TailoredResume() {
           {view.pdf_url && (
             <a className="btn" href={apiUrl(view.pdf_url)} target="_blank" rel="noopener noreferrer">
               Download PDF
+            </a>
+          )}
+          {view.docx_url && (
+            <a className="btn" href={apiUrl(view.docx_url)} target="_blank" rel="noopener noreferrer">
+              Download Word
             </a>
           )}
           {ready && (
@@ -173,6 +201,7 @@ export default function TailoredResume() {
       </header>
 
       {problem && <ErrorNotice message={problem.message} />}
+      {coverageMessage && <SuccessNotice message={coverageMessage} />}
       {view.status === "approved" && (
         <SuccessNotice message="Approved. Send it from the ">
           <Link to="/outbox" className="font-semibold text-ok underline">
@@ -200,6 +229,14 @@ export default function TailoredResume() {
         ))}
       {view.resume_id && !view.ai_used && (
         <InfoNotice message="AI is not connected, so your resume was not tailored. The PDF uses your resume as it is, with a short cover note." />
+      )}
+
+      {view.coverage && (
+        <CoveragePanel
+          coverage={view.coverage}
+          busy={skillDecision.isPending}
+          onDecide={decideSkill}
+        />
       )}
 
       {(view.base || view.tailored) && (

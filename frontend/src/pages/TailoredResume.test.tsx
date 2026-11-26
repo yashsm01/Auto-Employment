@@ -31,12 +31,18 @@ function view(overrides: Partial<TailoredResumeView> = {}): TailoredResumeView {
       roles: [role([["r0b0", "Built data pipelines."], ["r0b1", "Wrote SQL reports."]])],
       skills: ["Python", "SQL"],
       education: [],
+      headline: "",
+      interests: "",
+      referees: "",
     },
     tailored: {
       summary: "Data engineer with 2 years building pipelines.",
       roles: [role([["r0b1", "Wrote SQL reports for finance."], ["r0b0", "Built data pipelines."]])],
       skills: ["SQL", "Python"],
       education: [],
+      headline: "",
+      interests: "",
+      referees: "",
       cover_note: "Kia ora,\n\nI build pipelines.",
     },
     changed_ids: ["r0b1"],
@@ -156,7 +162,7 @@ describe("TailoredResume", () => {
       "GET /outbox": () => ({
         body: {
           sending_enabled: false, reading_enabled: false, daily_limit: 15, sent_today: 0,
-          to_send: [], queued: [], failed: [], waiting: [], replied: [],
+          to_send: [], queued: [], failed: [], waiting: [], replied: [], drafts: [],
         },
       }),
       "POST /applications/a1/resume-decision": () => {
@@ -233,6 +239,72 @@ describe("TailoredResume", () => {
     expect(calls.some((call) => call.method === "POST" && call.path === "/applications/a1/tailor")).toBe(
       true,
     );
+  });
+
+  it("the tailored page offers Download Word", async () => {
+    mockApi({
+      "GET /applications/a1/resume": () => ({
+        body: view({ docx_url: "/resumes/r1/docx" }),
+      }),
+    });
+    renderPage(page, "/jobs/a1/resume");
+
+    expect(await screen.findByRole("link", { name: "Download Word" })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/\/resumes\/r1\/docx$/),
+    );
+  });
+
+  it("I have this posts have, shows the result, and Undo posts null", async () => {
+    const skillRow = (status: "missing" | "added", evidence: string) => ({
+      name: "dbt",
+      status,
+      evidence,
+      matched_as: null,
+    });
+    let current = view({
+      coverage: {
+        required: [],
+        preferred: [skillRow("missing", "")],
+        split: false,
+        required_text: "0 of 0",
+        preferred_text: "0 of 1",
+      },
+    });
+    const calls = mockApi({
+      "GET /applications/a1/resume": () => ({ body: current }),
+      "POST /skills/decision": (body) => {
+        const decision = (body as { decision: string | null }).decision;
+        current = view({
+          coverage: {
+            required: [],
+            preferred: [decision === "have" ? skillRow("added", "Added to your CV.") : skillRow("missing", "")],
+            split: false,
+            required_text: "0 of 0",
+            preferred_text: "0 of 1",
+          },
+        });
+        return { body: { ok: true } };
+      },
+    });
+    const user = userEvent.setup();
+    renderPage(page, "/jobs/a1/resume");
+
+    await user.click(await screen.findByRole("button", { name: "I have this: dbt" }));
+
+    expect(await screen.findByText("Added dbt to your CV.")).toBeInTheDocument();
+    expect(calls).toContainEqual({
+      method: "POST",
+      path: "/skills/decision",
+      body: { skill: "dbt", decision: "have" },
+    });
+    await user.click(await screen.findByRole("button", { name: "Undo: dbt" }));
+    expect(await screen.findByText("Undone.")).toBeInTheDocument();
+    expect(calls).toContainEqual({
+      method: "POST",
+      path: "/skills/decision",
+      body: { skill: "dbt", decision: null },
+    });
   });
 
   it("says when AI was not used", async () => {

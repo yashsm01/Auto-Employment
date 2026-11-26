@@ -229,3 +229,179 @@ Code: `services/contact_service.py`, `services/contact_extract.py`, `chains/recr
 - `/send` only messages the linked account's own number, or the numbers in `WA_ALLOWED_TO`. Before linking it answers 503.
 - When the phone unlinks, the session in `whatsapp-service/auth/` is deleted and a new QR code is shown.
 - The backend calls the same address as `WHATSAPP_SERVICE_URL` (default `http://127.0.0.1:3010/send`), plus `/status` and `/logout`. Settings › WhatsApp checks `/whatsapp/status` every 3 seconds until linked. If the service isn't running, it shows `offline` and says how to start it.
+
+## Master CV rules (resume builder)
+
+Code: `services/master_cv_service.py`, `api/master_cv.py`, `repositories/resumes_repo.py`, `repositories/profiles_repo.py`.
+
+**Storage**
+- The master CV lives in the base resume's `content`: `sections` (headline, summary, roles, skills, education, interests, referees), `contact` (name, email, phone, location, LinkedIn, WhatsApp, work rights) and `template` (`classic`, `modern`, `compact` or `executive`; anything else reads as `classic`).
+- `PUT /master-cv` writes sections, contact and template in one update. It needs a base resume that is not the example profile, otherwise it returns "Upload your resume first, then build on it here."
+- Size limits are checked when the CV is sent (up to 20 roles, 20 bullets per role, 80 skills, 20 education lines, 2,000 characters per text field). The limits are not checked when a saved CV is read back.
+
+**Loading**
+- Cached sections are used first (source `resume`).
+- With no cached sections, the AI section reader runs when a Claude key is set and the resume has text (source `ai`). The result is cached.
+- Otherwise (source `empty`) the form's Key skills are the resume profile's skills. This is display only: nothing is saved until Save CV.
+- A saved CV with no roles is a skeleton, not the CV. Tailoring and the prep pack do not use it: they use the uploaded text, and the plain cover note. Saving such a form, or "I have this" with no AI, never writes sections.
+- Contact defaults to the stored contact, or to details read from the resume text (name, email, phone, LinkedIn).
+
+**Saving and the resume profile**
+- Saving writes the CV, then syncs the resume profile. The sync only adds:
+  - the headline is added to the titles, unless it already matches one (ignoring case);
+  - each key skill not already in the profile's skills or tools (ignoring case) is added as a skill;
+  - tools are not touched, and nothing is removed.
+- If the contact has a name, the profile's full name is set to it.
+- Saving returns the CV with its ATS check.
+
+**ATS previews**
+- `with_ats` renders the PDF and Word file for the chosen design under `upload_dir/previews/` with unique temporary names, runs the ATS check, and only then moves the files to `{profile_id}.pdf` and `{profile_id}.docx`. The previews are replaced each time, so concurrent requests never read a half-written file.
+- If anything fails, the report holds one item, "ATS check could not run", with the error type. The CV page and saving still work.
+- `GET /master-cv` and `PUT /master-cv` run the check. `GET /master-cv/file?format=pdf|docx` renders a fresh copy into a temporary file, which is deleted after the response.
+
+## Contact redaction rules
+
+Code: `core/documents.py` (`redact_contact_details`, `contact_for_text`, `ai_resume_json`). Used before any text goes to an AI provider: section reading (`ResumeSectionsChain`), profile reading (`ResumeProfileChain`), the prep pack writer (`WriteChain`), the tailoring writer (`TailorChain`) and the fact check (`FactCheckChain`).
+
+- Email addresses and phone numbers are always replaced: an email with `[email removed]`, and a phone of 8 to 15 digits with `[phone removed]`. A run of years such as `2019 - 2021` is kept.
+- The stored contact is merged per field with the details read from the text: a stored value wins, and a blank field is filled from the text. So a blank stored name still redacts the name in the text.
+- The name is removed as a whole phrase, ignoring case and spacing, and a name ending in punctuation (such as "Jr.") is removed too. A name shorter than 4 characters is not removed.
+- The LinkedIn URL for the stored handle is removed, with or without `https://`, `http://` or `www.`, in any case, with or without a trailing slash.
+- Its WhatsApp number is removed where the text has a phone number with the same digits (after dropping the NZ `64` code and trunk zero).
+- Location and work-rights wording in the body are left in, because roles need their locations and the work-rights line is needed for the CV.
+- Parsed sections are sent as JSON without referees and without role locations (`ai_resume_json`). The raw resume text is sent redacted, and only when there are no parsed sections (prep pack writer).
+- The tailoring AI and the fact check never receive the contact block. The greeting and sign-off are added by the app.
+
+## Designs and layout order
+
+Code: `core/resume_layout.py` (blocks and looks), `core/resume_pdf.py`, `core/resume_docx.py`.
+
+**Order.** Every design prints the same blocks, in this order:
+1. Name (when filled in).
+2. Headline (when filled in).
+3. Contact line: city · phone · email · LinkedIn, plus `WhatsApp …` only when the WhatsApp number is a different number from the phone (compared as NZ numbers, then by digits).
+4. Work-rights line (when filled in).
+5. Heading **Profile**, then the summary (when filled in).
+6. Heading **Key skills**, then the skills joined with `, ` (Compact uses ` · `).
+7. Heading **Work history**. Each role prints its title with its dates on the right, then employer and location, then its bullets (empty bullets are skipped).
+8. Heading **Education and certifications**, then each line.
+9. Heading **Interests** and its text, only when interests are filled in.
+10. Heading **Referees**, then the text (defaults to "Available on request.").
+
+Headings print even when their section is empty. Without parsed sections, the PDF and Word file print the name, the contact line and then each line of the resume text as plain text.
+
+**The four looks**
+
+| Design | Accent | Name | Headings (PDF) | Word fonts |
+|---|---|---|---|---|
+| Classic | black | centred, 20 pt | uppercase, with a rule | Georgia |
+| Modern | `#0F5C5C` | left, 20 pt | uppercase, with a rule | Calibri |
+| Compact | `#1F3A5F` | left, 15 pt, smaller text (8.5 pt) | uppercase, with a rule | Arial |
+| Executive | `#1F3A5F` | left, 20 pt | 11 pt, not uppercase, no rule; a rule under the contact line | Cambria headings, Calibri text |
+
+- PDF: A4, all four designs in DejaVu Sans (bundled), margins 18 mm sides and 16 mm top and bottom. Headings keep with the next line, so a heading is not left alone at the foot of a page.
+- Word: A4, the same margins, no tables, text boxes, images, headers or footers. Only the name and the lines above the headings take the look's alignment. Headings, body text, entries, role lines and bullets are left-aligned. Bullets use the List Bullet style.
+- The look changes accent colour, heading style, name alignment and spacing. Compact also uses smaller type (15 pt name, 8.5 pt text and headings, against 20 pt and 9.5 pt elsewhere). Content and order never change between designs.
+
+## ATS check rules
+
+Code: `services/ats_check.py`. The check reads the text of the generated PDF with pypdf, which is what an applicant tracking system sees. It returns nine items, each with `ok` and a detail. There is no score.
+
+1. **One column, no tables, text boxes or images.** Always ok: every design is built this way. The detail says so. This item is not tested.
+2. **Name and contact details at the top of the page body.** Fails with "Add your name." when there is no name. Fails with "Put your name on the first line." when the first non-empty line of the PDF text is not the name (ignoring case and spacing). Fails with "Add an email or phone number." when neither is set.
+3. **Standard section names in the NZ order.** Expected order: Profile, Key skills, Work history, Education and certifications, Interests (only when filled in), Referees. The check looks for these whole lines in that order. Missing headings are listed ("Missing: …"). When all are present but out of order, the detail is "Headings are out of order."
+4. **Dates as month and year.** With no roles, ok with "No roles yet.". Each role's dates must match a month name (three letters, optionally more), a year, a dash (en dash or hyphen), then `Present` or another month and year. Roles that fail are listed by title.
+5. **2 pages or fewer.** The PDF's page count from pypdf. The detail says "1 page" or "N pages".
+6. **Profile of 50 to 150 words.** Counted by splitting the summary on spaces. The detail gives the count.
+7. **No photo, date of birth, gender, marital status, nationality or religion.** Flags these words only as field labels: at the start of a line, or after `·` or `|`, followed by `:` or `-` (for example `Gender: …`). Ordinary words such as "Gender equality" pass. The check cannot see a photo. The detail lists what to remove.
+8. **Work rights stated.** Ok when the work-rights line is not empty.
+9. **Files under 2.5 MB.** Both the PDF and the Word file must be under 2,621,440 bytes. The detail gives both sizes in KB.
+
+## Requirements from the ad
+
+Code: `chains/score_chain.py`, `services/coverage_service.py` (`requirements`), `services/application_service.py`, `supabase/migrations/0009_resume_builder.sql`.
+
+- **AI scoring** (the existing scoring call) also returns `required_skills` and `preferred_skills`, in the ad's wording, up to 12 each. Each must appear in the ad text (whole word, ignoring case, plurals allowed), or it is dropped. The ad's own wording is kept. A preferred skill that is also required is dropped from the preferred list. `requirements_split` is set to true.
+- **Keyword scorer** (no AI): required = the skills it matched on the resume, then the missing skills from its known list that the ad mentions. Preferred is empty and `requirements_split` is false. The UI calls this group "Skills the ad mentions".
+- **Pre-0009 and empty requirements:** an application with no required and no preferred skills (rows scored before migration 0009, or a scored row with none extracted) takes its matched and missing skills as one required group, with `requirements_split` false.
+- Migration 0009 adds `required_skills`, `preferred_skills` and `requirements_split` to `applications`, with empty defaults, so existing rows are not changed.
+
+## Skill coverage rules
+
+Code: `services/coverage_service.py`, `core/skill_synonyms.py`, `repositories/skills_repo.py`. Routes: `GET /applications/{id}/coverage`, `POST /skills/decision`.
+
+**Search order.** Each skill is searched for in the master CV in this order, and the first place that matches is the evidence:
+1. Each role: its title, then its bullets. Evidence: "Shown in: {title}, {dates}".
+2. The headline, then the summary. Evidence: "Shown in: Profile".
+3. Key skills. Evidence: "Shown in: Key skills".
+4. Education lines. Evidence: "Shown in: Education".
+
+Matching is whole word or phrase, ignoring case, with an optional plural (see `core/normalize.py`). Skills of two characters or fewer (such as Go) match only in the case typed, so "Go" is not found in "we go live" but is found in "Go and Python". This rule applies to coverage and the declined-skill check only.
+
+**Synonyms.** Each skill is checked by its own name first, then by every name linked to it, directly or through another name. The seed list is in `core/skill_synonyms.py` (AWS / Amazon Web Services, GCP / Google Cloud, JavaScript / JS, TypeScript / TS, PostgreSQL / Postgres, SQL Server / MS SQL, Power BI / PowerBI, Excel / Microsoft Excel / MS Excel, Kubernetes / K8s, Machine learning / ML, CI/CD / continuous integration, .NET / dotnet, Node.js / NodeJS, React / React.js). When a linked name matched, the result shows "Matched as {name}".
+
+**Statuses**
+- `shown`: found in the CV, with the evidence above.
+- `added`: a Key skills match for a skill the user chose "I have this" for. Evidence: "Added by you to Key skills". A role, profile or education match takes precedence and gives `shown`.
+- `declined`: the user chose "Not me" and the CV does not mention the skill. Evidence: "You said you don't have this.". A "Not me" answer does not hide a match: if the CV mentions the skill, it is `shown`.
+- `missing`: none of the above. Evidence: "Not in your CV yet".
+- Covered = `shown` or `added`. The count reads "N of M" for each group. "No skills found in this ad." appears when both lists are empty.
+
+**Which sections are checked.** The master CV is loaded, reading the sections with AI if needed. If the master CV has no content at all (no headline, summary, roles, skills or education; interests and referees do not count), the resume profile's skill names (skills, then tools, without repeats) stand in as Key skills. With no base resume at all, Key skills are empty and the counts still show. If the AI cannot read the sections, the same stand-in is used, so the Shortlist still loads and counts. The Resume review page counts the tailored sections when the tailored resume used the master CV, and otherwise the same sections as the Shortlist, so the two counts agree.
+
+**Decisions.** `POST /skills/decision` takes `{skill, decision}`, where `decision` is `have`, `no` or null (undo). Decisions are keyed by the skill name ignoring case, one per profile.
+- **Have:** stores the decision with `skill_decisions.added` set to true only when this answer added the skill to the resume profile or the master CV. The skill is added to the resume profile's skills (unless already listed) and to the master CV's Key skills (when the CV has content, and unless already listed). A blank master CV is not written to. Repeating "have" keeps the `added` flag as it was.
+- **No:** stores the decision. If the previous decision was "have" and `added` is true, the skill is removed from the resume profile's skills and from the master CV's Key skills. Tools are not removed. A skill the user already had stays.
+- **Undo (null):** deletes the decision. If the previous decision was "have" and `added` is true, the skill is removed as above.
+- Migration 0009 adds `added` with `alter table skill_decisions add column if not exists added boolean not null default false`. A database that recorded 0009 before this column existed needs that statement run once. Until then, undo does not remove a skill.
+- Decisions do not change the match score. They change coverage and what tailoring may say.
+- In the UI, **I have this** and **Not me** appear only for `missing` skills, and **Undo** only for `added` and `declined` skills.
+
+## Tailoring changes (resume builder)
+
+Code: `graphs/resume/nodes/*.py`, `services/tailoring_service.py`, `services/resume_build_service.py`, `services/resume_review_service.py`.
+
+- **Template.** The tailored resume uses the master CV's design at the time tailoring runs (default `classic`). The PDF and the Word file use the same design.
+- **Fact-check source.** Claims are checked against the uploaded resume text plus the master CV text (headline, summary, role titles and bullets, skills, education and interests). This is the only text a tailored claim can rely on. The AI fact check receives the sections, the tailored draft, the employer facts and the job, not the contact block.
+- **Titles, employers, dates, education, interests and referees** always come from the base resume. The model only rewrites bullets and the summary, and orders the skills it already has.
+- **Code checks** (`check_facts`), run on each bullet and on the summary:
+  - a bullet that adds a number the original bullet does not have, or a known skill that its own role does not mention, goes back to the original wording;
+  - the summary goes back to the base summary when the rewrite adds a number or known skill that the source does not have;
+  - a bullet, or the summary, that mentions a declined skill the source does not mention goes back to the original.
+- **Declined skills.** A declined skill is one the user chose "Not me" for. Any bullet, summary or cover-note sentence that mentions it (or a linked name) and that the master CV does not mention is reverted or removed. Uploaded text alone does not count: the master CV's headline, summary, roles, skills and education do. The note says "Removed a mention of {skill}, which you said you don't have." A declined skill is also dropped from the tailored Key skills list unless the master CV lists it.
+- **AI check.** A second model compares the draft with the source. Flagged bullets, a flagged summary and flagged cover-note sentences are reverted or removed, each with a note. If the check is unavailable, the notes say "The AI fact check was unavailable, so only the automatic checks ran."
+- **Master CV used only with roles.** Tailoring uses the master CV's sections only when they have at least one role. Otherwise the resume counts as having no parsed sections.
+- **Without AI** (no tailoring model, or no sections with roles), the PDF and Word file use the uploaded text as it is, with a short standard cover note. The code checks and declined-skill removal do not run in this case.
+- **Word file.** Written beside the PDF with the same name (`.docx`). If it fails, the failure is logged without any CV text, any partial file is removed, and the note "The Word file could not be made this time. The PDF is ready." is added. Tailoring still finishes and the PDF is still saved.
+- **Coverage on review.** The Resume review page counts the tailored sections when the tailored resume used the master CV. Otherwise it counts the same sections as the Shortlist (the master CV, or the profile's skills as a stand-in), so the two counts agree.
+- **Email.** The PDF is still the attachment, not the Word file.
+
+## Signature rules
+
+Code: `services/outbox_service.py` (`signature`, `sign_cover_note`, `follow_up_body`).
+
+- The sender details come from the base resume's stored contact (or details read from its text when none is stored).
+- The signature is the name line, `Ngā mihi,` then the name (or just `Ngā mihi` with no name), then the numbers:
+  - when the phone and WhatsApp numbers are the same (as NZ numbers, or by digits), `Phone and WhatsApp: {phone}`;
+  - otherwise `Phone: {phone}` when there is a phone, then `WhatsApp: {whatsapp}` when there is a WhatsApp number.
+- **Application emails:** the cover note's usual sign-off (`Ngā mihi,` and the name, at the end) is replaced with the signature. A note without that sign-off gets the numbers added at the end.
+- **Follow-ups:** the body is `Kia ora,`, the follow-up text (the first says the sent date; later ones say "once more") and the signature.
+- The PDF is not changed.
+- The app never sends WhatsApp messages to employers. WhatsApp is used only for updates to the user (see WhatsApp Web link).
+
+## Follow-up drafts lifecycle
+
+Code: `workers/outbox_job.py` (`_schedule_follow_ups`), `services/outbox_service.py` (`send_draft`, `cancel`), `repositories/outbox_repo.py`. Routes: `GET/PUT /settings/follow-ups`, `POST /outbox/{id}/send`.
+
+- **Setting:** `settings.ai.follow_ups.mode`, `auto` (the default) or `ask`. It is read each time a follow-up is due, so a change applies from then on. It does not change rows already queued or waiting.
+- **When a follow-up is due:** an emailed application (`apply_method = email`, status `sent` or `followed_up`) whose `next_follow_up` date has come, and which has fewer than two follow-ups, gets one follow-up. If one is already queued, waiting or failed, nothing else is added.
+- **Auto:** a `queued` follow-up row is made, threaded on the first email. It goes out on the next run, within the daily limit and only when sending is on.
+- **Ask:** a `draft` row is made instead, with the same text. The job's `next_follow_up` is cleared, so no second draft is made. A "Follow up today" notification is sent.
+  - **Send** (`POST /outbox/{id}/send`) changes the draft to `queued`, due now. It goes out on the next run, within the daily limit. Once sent, the job is `followed_up`, the count goes up by one and the next date is 5 working days later.
+  - **Skip** (cancel) sets the draft to `cancelled` and clears the follow-up date for that job. No more follow-ups are made for it, and the job stays open (it is not closed automatically, because the closing check needs a follow-up date).
+  - A draft that is neither sent nor skipped stays `draft` and waits indefinitely. Nothing is sent, and the job's follow-up date stays cleared, so it is never closed automatically either.
+- **Closing after two follow-ups:** when a job has two follow-ups and its next date comes, it is closed (or sent to an AI call when calls are on), in both modes. In ask mode this only happens after the second follow-up has been sent.
+- **Cancelling:** "They replied", "Close" and "Stop follow-ups" cancel queued, failed and draft follow-ups for the job. Cancelling a draft directly does the same as Skip.
+- **Outbox page:** the drafts appear under **Follow-ups waiting for you**, with **Send** (queues it now) and **Skip** (stops follow-ups for this job).
+- Manual applications (**I applied on the job site**) get the "Follow up today" notification on their date, as before, and are not affected by the mode.
+- **I followed up** on a manual application (`record_outcome`, action `followed_up`) counts one follow-up and sets the next reminder date 5 working days later. The second press sets no date, so reminders stop after the second follow-up. The job is not closed by this path.

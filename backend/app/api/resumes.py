@@ -67,3 +67,16 @@ def resume_pdf(
 ) -> FileResponse:
     path = resume_review_service.pdf_path(conn, profile_id, resume_id, settings.upload_dir)
     return FileResponse(path, media_type="application/pdf", filename="Resume.pdf")
+
+
+DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+@router.get("/resumes/{resume_id}/docx")
+def resume_docx(
+    resume_id: UUID, conn: ConnDep, profile_id: ProfileIdDep, settings: SettingsDep
+) -> FileResponse:
+    path, filename = resume_review_service.docx_file(
+        conn, profile_id, resume_id, settings.upload_dir
+    )
+    return FileResponse(path, media_type=DOCX_TYPE, filename=filename)

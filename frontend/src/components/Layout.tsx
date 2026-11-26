@@ -16,10 +16,11 @@ export default function Layout() {
   const review = useReviewList();
   const readyCount = review.data?.items.filter((item) => item.status === "ready").length;
   const outbox = useOutbox();
-  // Things waiting for you: applications to send, failed emails and follow-ups due.
+  // Things waiting for you: applications to send, failed emails, follow-up drafts and follow-ups due.
   const outboxCount = outbox.data
     ? outbox.data.to_send.length +
       outbox.data.failed.length +
+      outbox.data.drafts.length +
       outbox.data.waiting.filter((item) => item.follow_up_due).length
     : undefined;
 
@@ -43,6 +44,9 @@ export default function Layout() {
           {count !== undefined && (
             <span className="rounded-full bg-navy-light px-2 text-xs text-white">{count}</span>
           )}
+        </NavLink>
+        <NavLink to="/builder" className={linkClass}>
+          Resume builder
         </NavLink>
         <NavLink to="/resumes" className={linkClass}>
           Resume review

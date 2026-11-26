@@ -2,9 +2,10 @@
 
 from pydantic import BaseModel, Field
 
+from app.core.documents import ai_resume_json
 from app.providers.llm.base import LLMProvider
 from app.schemas.job import JobDraft
-from app.schemas.tailoring import BaseSections, TailoredResume
+from app.schemas.tailoring import BaseSections, ContactDetails, TailoredResume
 
 MAX_POST_CHARS = 12_000
 
@@ -96,10 +97,11 @@ class TailorChain:
         sections: BaseSections,
         job: JobDraft,
         facts: list[str],
+        contact: ContactDetails | None = None,
     ) -> TailorDraft:
-        # The candidate's name is not sent: the sign-off is added in code.
+        # Contact details, role locations and referees are not sent. The sign-off is added in code.
         user = (
-            f"<resume>\n{_as_data(sections.model_dump_json())}\n</resume>\n\n"
+            f"<resume>\n{_as_data(ai_resume_json(sections, contact))}\n</resume>\n\n"
             f"{_job_block(job)}\n\n"
             f"<employer_facts>\n{_facts_block(facts)}\n</employer_facts>"
         )
@@ -113,11 +115,16 @@ class FactCheckChain:
         self._llm = llm
 
     def run(
-        self, original: BaseSections, tailored: TailoredResume, facts: list[str], job: JobDraft
+        self,
+        original: BaseSections,
+        tailored: TailoredResume,
+        facts: list[str],
+        job: JobDraft,
+        contact: ContactDetails | None = None,
     ) -> FactCheckResult:
         user = (
-            f"<original_resume>\n{_as_data(original.model_dump_json())}\n</original_resume>\n\n"
-            f"<tailored_resume>\n{_as_data(tailored.model_dump_json())}\n</tailored_resume>\n\n"
+            f"<original_resume>\n{_as_data(ai_resume_json(original, contact))}\n</original_resume>\n\n"
+            f"<tailored_resume>\n{_as_data(ai_resume_json(tailored, contact))}\n</tailored_resume>\n\n"
             f"{_job_block(job)}\n\n"
             f"<employer_facts>\n{_facts_block(facts)}\n</employer_facts>"
         )

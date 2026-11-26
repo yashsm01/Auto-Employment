@@ -6,10 +6,11 @@ from typing import Protocol
 from pydantic import BaseModel, Field
 
 from app.chains.score_chain import KNOWN_SKILLS
-from app.core.documents import redact_contact_details
+from app.core.documents import contact_for_text, redact_contact_details
 from app.core.normalize import contains_term
 from app.providers.llm.base import LLMProvider
 from app.schemas.resume import ResumeProfile, SkillEntry
+from app.schemas.tailoring import ContactDetails
 
 MAX_OFFLINE_TITLES = 5
 _ROLE_WORDS = re.compile(
@@ -42,7 +43,7 @@ class ResumeExtraction(BaseModel):
 
 
 class ResumeChain(Protocol):
-    def run(self, text: str) -> ResumeProfile: ...
+    def run(self, text: str, contact: ContactDetails | None = None) -> ResumeProfile: ...
 
 
 def _unique(values: list[str]) -> list[str]:
@@ -58,10 +59,12 @@ class ResumeProfileChain:
     def __init__(self, llm: LLMProvider) -> None:
         self._llm = llm
 
-    def run(self, text: str) -> ResumeProfile:
+    def run(self, text: str, contact: ContactDetails | None = None) -> ResumeProfile:
+        """`contact` is the stored contact. Without one, the contact is read from the text."""
+        known = contact_for_text(contact, text)
         extraction = self._llm.parse(
             system=SYSTEM_PROMPT,
-            user=f"<resume>\n{redact_contact_details(text)}\n</resume>",
+            user=f"<resume>\n{redact_contact_details(text, known)}\n</resume>",
             schema=ResumeExtraction,
             max_tokens=8000,
         )
@@ -82,7 +85,7 @@ class ResumeProfileChain:
 class OfflineResumeChain:
     """Free fallback: finds known skills and lines that look like job titles."""
 
-    def run(self, text: str) -> ResumeProfile:
+    def run(self, text: str, contact: ContactDetails | None = None) -> ResumeProfile:
         titles = []
         for line in text.splitlines():
             if len(line) <= 80 and _ROLE_WORDS.search(line):

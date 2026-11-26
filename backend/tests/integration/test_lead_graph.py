@@ -92,6 +92,18 @@ def test_run_stores_score_details_for_the_shortlist(conn):
     assert "Python" in row["score_reason"]
 
 
+def test_lead_graph_stores_requirements_on_the_application(conn):
+    run_graph("lead", {"profile_id": PROFILE_ID}, _deps(conn, FixedSource([_good_job()])))
+
+    row = conn.execute(
+        "select required_skills, preferred_skills, requirements_split from applications"
+    ).fetchone()
+
+    assert row["required_skills"] == ["Python", "FastAPI", "SQL"]
+    assert row["preferred_skills"] == []
+    assert row["requirements_split"] is False
+
+
 def test_run_searches_keywords_without_the_region(conn):
     source = FixedSource([])
 

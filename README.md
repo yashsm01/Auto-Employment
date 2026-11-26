@@ -67,15 +67,91 @@ The search runs daily at 7 am NZ time **while the backend is running**. If the c
 
 1. On **Shortlist**, approve a job. Tailoring starts straight away and usually takes under a minute.
 2. Open **Resume review**. Each job shows your original resume next to the tailored one, with reworded lines highlighted.
-3. Edit the cover note if you like, then **Approve**, **Reject** or **Regenerate**. **Download PDF** gives the file that will be attached.
+3. Edit the cover note if you like, then **Approve**, **Reject** or **Regenerate**. **Download PDF** gives the file that will be attached, and **Download Word** gives an editable copy of the same resume.
 
 Tailoring only rewords and reorders what your resume already says. Titles, employers and dates are copied from your resume, never from the AI. Every result is checked twice: by code (no new numbers or skills) and by a second AI check against your resume and the job post. Anything unsupported goes back to your original wording, and the Fact check box lists what changed back.
 
-Your name, email and phone at the top of the PDF come from **My resume profile** under "Your details for resumes". Your email and phone number are removed from your resume before it is sent to AI. The greeting and sign-off are added by the app.
+Your name, email and phone at the top of the PDF come from **My resume profile** under "Your details for resumes". Before your resume goes to AI (sections, profile, tailoring, the fact check and the deep-search pack), email addresses and phone numbers are removed. Your name, LinkedIn and WhatsApp number are removed too, using the stored details with any blank filled from the resume text (the name only when it has four or more characters). Referees and role locations are not sent. The greeting and sign-off are added by the app.
+
+Tailored resumes use the design you chose on the [Resume builder](#resume-builder). Tailoring uses your master CV only when it has at least one role. Otherwise, or without an AI key, the PDF and Word file use your uploaded resume as it is with a short standard cover note, and the checks do not run (see [Skill coverage](#skill-coverage)). Tailoring never adds a skill you marked **Not me**, and never claims one in the cover note, unless your master CV itself shows it. The uploaded resume text alone does not count. A declined skill is also left off the tailored Key skills list unless your master CV lists it.
 
 If tailoring fails, the job shows the error and a **Try again** button. Failed jobs are not retried on their own, so a broken key does not keep using calls. A queue every 15 minutes picks up approved jobs that have not been tried yet, for example after a restart. Approved resumes wait for Phase 3, which adds email sending.
 
 Models are set in `.env`: `RESUME_MODEL` reads your resume into sections, `TAILOR_MODEL` writes the tailored version, and `SCORING_MODEL` runs the fact check.
+
+## Resume builder
+
+Open **Resume builder** in the menu, after **Shortlist**. It holds your **master CV**: the one version of your resume that the app edits, searches with, scores with and tailors from.
+
+- **Contact:** name, email, phone, city, LinkedIn, WhatsApp and a work-rights line (for example "NZ citizen", or your visa and its expiry date).
+- **Sections:** headline, profile, key skills, work history (title, employer, location, dates and bullets), education and certifications, interests and referees.
+
+The builder starts from your uploaded resume. With an `ANTHROPIC_API_KEY`, the AI splits it into sections, after your contact details are removed. Without a key, the form's Key skills start from your resume profile's skills, for display only: nothing is saved until you press Save CV. When you save, new key skills and your headline are added to your resume profile, so the daily search and scoring use them. Nothing is removed from your profile this way. Your name also becomes your profile name.
+
+### Four designs
+
+Choose one of four looks: **Classic**, **Modern**, **Compact** or **Executive**. Each prints the same content in the same order, on A4 in a single column. They differ in accent colour, heading style, name alignment and spacing. Compact also uses smaller type: a 15 pt name and 8.5 pt text and headings, against a 20 pt name and 9.5 pt text elsewhere. Your choice applies to every file, including tailored resumes.
+
+- The PDF uses DejaVu Sans for all four, so macrons such as "ā" print correctly.
+- The Word file uses Georgia (Classic), Calibri (Modern), Arial (Compact), and Cambria headings with Calibri text (Executive).
+- Nothing is in a table, text box, image, or header or footer, because applicant tracking software often misreads those.
+
+Download the **PDF** or **Word** file from the builder. Each tailored resume has both as well.
+
+### ATS check
+
+Below the builder, the **ATS check** lists nine items, each marked ok or not. It has no score and no pass mark. It runs when the page opens and after each save. Each run renders fresh PDF and Word previews from your saved CV and checks those files.
+
+1. **One column, no tables, text boxes or images.** Every design is built this way, so this always passes.
+2. **Name and contact details at the top of the page body.** Your name must be the first line of the PDF, with an email or phone number.
+3. **Standard section names in the NZ order.** Profile, Key skills, Work history, Education and certifications, Interests (only when filled in) and Referees.
+4. **Dates as month and year,** such as "Mar 2021 – Present".
+5. **Two pages or fewer.**
+6. **A profile of 50 to 150 words.**
+7. **No photo, date of birth, gender, marital status, nationality or religion.** The check looks for these as field labels in the text, such as "Gender:". It cannot see a photo.
+8. **Work rights stated.**
+9. **Files under 2.5 MB,** for the PDF and the Word file.
+
+Press **Show what ATS software reads** to see the plain text taken from the PDF. If the check itself fails, the panel says **ATS check could not run**, and saving still works.
+
+Applicant tracking software reads the text inside the file. It works best with plain single-column text, standard headings and your name on the first line. It cannot read text inside images, text boxes or headers, and it can jumble words in columns. The research behind these rules is in [reports/ATS resume parsing and scoring NZ.md](reports/ATS%20resume%20parsing%20and%20scoring%20NZ.md). The research found no published data on how SEEK, Trade Me, JobAdder or PageUp parse resumes, so the check is a sound guide, not proof for those sites.
+
+### New Zealand CV conventions
+
+The layout follows the New Zealand advice in that report, including Tahatu's CV guidance.
+
+- Two pages if you can, with the sections in the order above.
+- Your name, then the headline, then one contact line: city, phone, email and LinkedIn. WhatsApp is added only when it is a different number. The work-rights line comes after that.
+- Month and year for every date. The builder keeps the order of jobs you enter, so put the most recent first.
+- Plain text, with the accent colour only on headings and rules. There are no fields for personal details such as a photo, date of birth or marital status.
+- "Available on request." under Referees, unless you change it.
+
+### Email signature and WhatsApp
+
+Emails and follow-ups end with your name, then your phone and WhatsApp numbers from the builder's contact details. If the two numbers are the same, the line reads "Phone and WhatsApp". Otherwise there are separate Phone and WhatsApp lines. The PDF is unchanged.
+
+The app never messages employers on WhatsApp. WhatsApp is only for your own updates, as described under [AI phone calls and WhatsApp updates](#ai-phone-calls-and-whatsapp-updates-phase-4).
+
+After updating the code, run `.venv\Scripts\python -m app.db.migrate` once in `backend` to add the resume builder columns and the skill decisions table.
+
+## Skill coverage
+
+On the **Resume review** page, **Skill coverage for this job** lists the skills the ad asks for and where your CV shows them. The **Shortlist** shows a shorter count for each job. If the AI cannot read your CV sections at that moment, the Shortlist still loads and counts, using your profile's skills.
+
+- When the AI scores a job, it also reads the ad's **required** and **nice to have** skills. Only skills the ad names are kept. Jobs scored before this update, and jobs whose scoring found no required or nice-to-have skills, show the skills the earlier scoring listed as matched or missing, as one group. Those were not checked against the ad. Without an AI key, the keyword scorer lists the skills it finds under **Skills the ad mentions**.
+- The two groups are counted separately, for example "3 of 4" required.
+- Each skill shows where your CV mentions it, looking in this order: a role (title, then bullets), your profile, key skills, then education.
+- Synonyms count. The app knows pairs such as AWS and Amazon Web Services, Postgres and PostgreSQL, K8s and Kubernetes, and JS and JavaScript. When a synonym matched, the panel says "Matched as AWS". Matching ignores capitals and allows a plural. Skills of two letters or fewer, such as Go, match only in the capitals you typed, so "Go" does not match "we go live".
+- Coverage is a guide, not a score. There is no pass mark, and it does not change the match score. The panel says: "How many of the ad's skills your CV shows, and where. Employers' systems differ, so this is a guide, not a prediction of an interview."
+- On the **Shortlist**, a chip shows the required count. It reads "Skills: 3 of 4 required" when the ad's skills are split into required and nice to have, and "Skills: 3 of 4 in the ad" when they are not.
+
+### Your decisions
+
+For a skill your CV does not show, choose one of these:
+
+- **I have this** adds the skill to your resume profile, and to your Key skills on the master CV when the CV has content. The skill then shows as "Added by you to Key skills", and it counts as covered. With no CV content and no AI, the master CV is not saved from this.
+- **Not me** records that you don't have it. The skill counts as declined. Tailored resumes never add it, as described under Tailored resumes.
+- **Undo** is offered while a skill is marked added or declined. Undoing **I have this** removes the skill from your Key skills and resume profile only when the app added it. A skill you already had stays. Undoing **Not me** only clears the answer. Once a skill marked **Not me** appears in your CV, it shows as covered and no Undo is offered.
 
 ## Deep search
 
@@ -135,6 +211,8 @@ After you approve a tailored resume on **Resume review**, it waits under **Ready
 The rules:
 - At most 15 emails a day (change it on the Outbox page). A failed send is retried twice, 15 minutes apart, then shown under **Failed** with **Try again**.
 - With no reply after 5 working days (weekends and NZ public holidays skipped; regional anniversary days are not), a short follow-up is sent in the same email thread. A second follows 5 working days later, and the job closes 5 working days after that.
+- **Follow-up mode** is set under **Settings › Auto mode › Follow-ups**. The default, **Send follow-ups automatically**, is what is described above. With **Ask me before each follow-up**, a due follow-up waits in the Outbox under **Follow-ups waiting for you**. **Send** queues it, and it goes out on the next run. **Skip** stops follow-ups for that job. You get a notification when one is waiting. A draft waits until you press **Send** or **Skip**. Skip stops follow-ups for the job, and the job is then not closed automatically. A job closes automatically only after two follow-ups have been sent, in both modes.
+- Each email ends with your name and your phone and WhatsApp numbers, from the [Resume builder](#resume-builder) contact details.
 - With `EMAIL_ENABLED` set, replies are noticed automatically: any email from that address after you applied marks the job **Replied** and stops follow-ups. You can also press **They replied**, **Stop follow-ups** or **Close**.
 - The Outbox is checked every 15 minutes while the backend is running.
 - Automatic replies such as "out of office" are ignored, so follow-ups continue.

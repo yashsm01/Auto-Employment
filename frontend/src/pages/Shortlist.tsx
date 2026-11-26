@@ -42,6 +42,13 @@ function JobCard({
           {item.company} · {item.city} · {item.salary}
         </span>
         <div className="flex flex-wrap gap-1.5">
+          {item.required_total > 0 && (
+            <span className="rounded-md bg-brand-soft px-2 py-0.5 text-xs text-brand-dark">
+              {item.requirements_split
+                ? `Skills: ${item.required_covered} of ${item.required_total} required`
+                : `Skills: ${item.required_covered} of ${item.required_total} in the ad`}
+            </span>
+          )}
           {item.matched_skills.map((skill) => (
             <span key={skill} className="rounded-md bg-ok-soft px-2 py-0.5 text-xs text-ok">
               {skill}

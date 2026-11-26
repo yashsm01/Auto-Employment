@@ -59,6 +59,9 @@ class ShortlistItem(BaseModel):
     reason: str
     url: str | None
     is_example: bool
+    required_covered: int
+    required_total: int
+    requirements_split: bool
 
 
 class Shortlist(BaseModel):

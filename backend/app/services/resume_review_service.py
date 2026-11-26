@@ -6,16 +6,27 @@ from uuid import UUID
 
 import psycopg
 
+from app.core.documents import extract_contact_details
 from app.core.errors import Conflict, NotFound
-from app.repositories import applications_repo, events_repo, resumes_repo, runs_repo
+from app.core.resume_layout import cv_file_name
+from app.repositories import (
+    applications_repo,
+    events_repo,
+    resumes_repo,
+    runs_repo,
+    skills_repo,
+)
+from app.schemas.coverage import Coverage
 from app.schemas.tailoring import (
     BaseSections,
+    ContactDetails,
     ReviewItem,
     ReviewList,
     StatusResponse,
     TailoredResume,
     TailoredResumeView,
 )
+from app.services import coverage_service
 
 
 def _error(conn: psycopg.Connection, row: dict[str, Any]) -> str | None:
@@ -52,21 +63,61 @@ def view(conn: psycopg.Connection, profile_id: UUID, application_id: UUID) -> Ta
         resumes_repo.get_tailored(conn, profile_id, row["resume_id"]) if row["resume_id"] else None
     )
     content = resume["content"] if resume else {}
+    base = BaseSections(**content["base"]) if content.get("base") else None
+    tailored = TailoredResume(**content["tailored"]) if content.get("tailored") else None
     return TailoredResumeView(
         application_id=row["id"],
         status=row["status"],
         title=row["title"],
         company=row["company"],
         resume_id=resume["id"] if resume else None,
-        base=BaseSections(**content["base"]) if content.get("base") else None,
-        tailored=TailoredResume(**content["tailored"]) if content.get("tailored") else None,
+        base=base,
+        tailored=tailored,
         changed_ids=content.get("changed_ids", []),
         notes=content.get("notes", []),
         cover_note=content.get("cover_note", ""),
         facts_used=resume["facts_used"] if resume else [],
         ai_used=content.get("ai_used", False),
         pdf_url=f"/resumes/{resume['id']}/pdf" if resume else None,
+        docx_url=f"/resumes/{resume['id']}/docx" if resume and _docx_exists(resume) else None,
+        coverage=_coverage(conn, profile_id, application_id, tailored),
         error=_error(conn, row),
+    )
+
+
+def _docx_exists(resume: dict[str, Any]) -> bool:
+    return bool(resume["file_path"]) and _docx_beside(resume["file_path"]).is_file()
+
+
+def _docx_beside(pdf_file: str) -> Path:
+    """The Word file is written beside the PDF, with the same name."""
+    return Path(pdf_file).with_suffix(".docx")
+
+
+def _coverage(
+    conn: psycopg.Connection,
+    profile_id: UUID,
+    application_id: UUID,
+    tailored: TailoredResume | None,
+) -> Coverage | None:
+    """Skill coverage of the version the user is reviewing.
+
+    A tailored resume was built from the master CV, so its own sections are counted. Otherwise
+    the same sections the Shortlist counts are used, so the two always agree.
+    """
+    row = applications_repo.requirement_row(conn, profile_id, application_id)
+    if row is None:
+        return None
+    required, preferred, split = coverage_service.requirements(row)
+    if not required and not preferred:
+        return None
+    sections = tailored or coverage_service.key_sections(conn, profile_id, None)
+    return coverage_service.coverage(
+        sections,
+        required,
+        preferred,
+        split,
+        skills_repo.decisions(conn, profile_id),
     )
 
 
@@ -129,3 +180,27 @@ def pdf_path(
     if not path.is_relative_to(Path(upload_dir).resolve()) or not path.is_file():
         raise NotFound("Resume not found")
     return path
+
+
+def _contact(conn: psycopg.Connection, profile_id: UUID) -> ContactDetails:
+    """The same contact details the tailoring run used (from the base resume)."""
+    base = resumes_repo.latest_base(conn, profile_id)
+    if base is None:
+        return ContactDetails()
+    content = base["content"]
+    contact = content.get("contact") or extract_contact_details(content.get("text") or "")
+    return ContactDetails(**contact) if isinstance(contact, dict) else contact
+
+
+def docx_file(
+    conn: psycopg.Connection, profile_id: UUID, resume_id: UUID, upload_dir: Path
+) -> tuple[Path, str]:
+    """The Word file beside a tailored PDF, and its download name. Only files in the upload
+    folder are ever served."""
+    resume = resumes_repo.get_tailored(conn, profile_id, resume_id)
+    if resume is None or not resume["file_path"]:
+        raise NotFound("Resume not found")
+    path = _docx_beside(resume["file_path"]).resolve()
+    if not path.is_relative_to(Path(upload_dir).resolve()) or not path.is_file():
+        raise NotFound("Resume not found")
+    return path, cv_file_name(_contact(conn, profile_id), "docx")

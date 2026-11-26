@@ -48,5 +48,8 @@ class ScoreResult(BaseModel):
     score: int = Field(ge=0, le=100)
     matched_skills: list[str] = Field(default_factory=list)
     missing_skills: list[str] = Field(default_factory=list)
+    required_skills: list[str] = Field(default_factory=list)
+    preferred_skills: list[str] = Field(default_factory=list)
+    requirements_split: bool = False
     reason: str = ""
     used_ai: bool = False

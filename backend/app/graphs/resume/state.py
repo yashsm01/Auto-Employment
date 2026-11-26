@@ -13,7 +13,9 @@ class ResumeState(TypedDict, total=False):
     base_resume_id: UUID
     raw_text: str
     cached_sections: dict[str, Any] | None
+    template: str
     contact: ContactDetails
+    ai_contact: ContactDetails  # the redaction contact: what AI models may see redacted
     facts: list[str]
     sections: BaseSections | None
     tailored: TailoredResume | None

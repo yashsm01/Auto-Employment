@@ -6,6 +6,7 @@ from typing import Any
 from uuid import UUID
 
 import psycopg
+from psycopg.types.json import Jsonb
 
 _JOB = """
     from applications a
@@ -75,25 +76,27 @@ def queue(
     attachment_name: str | None,
     reply_to_message_id: str | None,
     scheduled_at: datetime,
+    status: str = "queued",
 ) -> UUID:
     return conn.execute(
         """
         insert into outbox (application_id, channel, kind, to_address, subject, body,
-                            attachment_path, attachment_name, reply_to_message_id, scheduled_at)
-        values (%s, 'email', %s, %s, %s, %s, %s, %s, %s, %s)
+                            attachment_path, attachment_name, reply_to_message_id, scheduled_at,
+                            status)
+        values (%s, 'email', %s, %s, %s, %s, %s, %s, %s, %s, %s)
         returning id
         """,
         (application_id, kind, to, subject, body,
          str(attachment_path) if attachment_path else None, attachment_name,
-         reply_to_message_id, scheduled_at),
+         reply_to_message_id, scheduled_at, status),
     ).fetchone()["id"]
 
 
 def pending(conn: psycopg.Connection, application_id: UUID | str, kind: str) -> dict | None:
-    """A queued or failed email of this kind that has not been dealt with yet."""
+    """A queued, failed or waiting draft email of this kind that has not been dealt with yet."""
     return conn.execute(
         "select * from outbox where application_id = %s and kind = %s "
-        "and status in ('queued', 'failed') order by scheduled_at desc limit 1",
+        "and status in ('queued', 'failed', 'draft') order by scheduled_at desc limit 1",
         (application_id, kind),
     ).fetchone()
 
@@ -181,8 +184,36 @@ def first_sent(conn: psycopg.Connection, application_id: UUID | str) -> dict | N
 def cancel_pending_follow_ups(conn: psycopg.Connection, application_id: UUID | str) -> None:
     conn.execute(
         "update outbox set status = 'cancelled' where application_id = %s "
-        "and kind = 'follow_up' and status in ('queued', 'failed')",
+        "and kind = 'follow_up' and status in ('queued', 'failed', 'draft')",
         (application_id,),
+    )
+
+
+def release_draft(conn: psycopg.Connection, outbox_id: UUID | str, now: datetime) -> None:
+    """The user approved a waiting follow-up: it is queued and goes out on the next run."""
+    conn.execute(
+        "update outbox set status = 'queued', scheduled_at = %s "
+        "where id = %s and status = 'draft'",
+        (now, outbox_id),
+    )
+
+
+def follow_up_settings(conn: psycopg.Connection, profile_id: UUID | str) -> dict[str, Any]:
+    row = conn.execute(
+        "select ai -> 'follow_ups' as follow_ups from settings where profile_id = %s",
+        (profile_id,),
+    ).fetchone()
+    return (row["follow_ups"] if row else None) or {}
+
+
+def save_follow_up_settings(conn: psycopg.Connection, profile_id: UUID | str,
+                            value: dict[str, Any]) -> None:
+    conn.execute(
+        """
+        insert into settings (profile_id, ai) values (%s, %s)
+        on conflict (profile_id) do update set ai = settings.ai || excluded.ai, updated_at = now()
+        """,
+        (profile_id, Jsonb({"follow_ups": value})),
     )
 
 
@@ -265,9 +296,10 @@ def awaiting_reply(conn: psycopg.Connection) -> list[dict[str, Any]]:
 
 def follow_ups_due(conn: psycopg.Connection, today: date) -> list[dict[str, Any]]:
     return conn.execute(
-        """
-        select a.id, a.profile_id, a.follow_ups, a.applied_at, j.title
-        from applications a join jobs j on j.id = a.job_id
+        f"""
+        select a.id, a.profile_id, a.follow_ups, a.applied_at, a.next_follow_up, j.title,
+               coalesce(c.name, 'the employer') as company
+        {_JOB}
         where a.apply_method = 'email' and a.status in ('sent', 'followed_up')
           and a.next_follow_up is not null and a.next_follow_up <= %s
         """,
