@@ -14,6 +14,8 @@ from app.core.errors import AppError, BadRequest, NotFound
 from app.db.client import connect
 from app.providers.company.places import PlacesClient
 from app.repositories import profiles_repo
+from app.services.contact_service import ContactTools
+from app.services.source_service import build_contact_tools
 
 
 @lru_cache
@@ -54,3 +56,9 @@ def get_places(settings: SettingsDep) -> Iterator[PlacesClient]:
         )
     with httpx.Client(timeout=20) as client:
         yield PlacesClient(client, key)
+
+
+def get_contact_tools(settings: SettingsDep) -> Iterator[ContactTools]:
+    """Reads an employer's own pages. Overridden in tests with fakes."""
+    with httpx.Client(timeout=20) as client:
+        yield build_contact_tools(settings, client)

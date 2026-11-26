@@ -1,3 +1,4 @@
+import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
@@ -5,12 +6,14 @@ from app.chains.company_summary_chain import CompanySummary, CompanySummaryChain
 from app.chains.manager import get_chain
 from app.core.config import Settings
 from app.core.deps import get_settings
-from app.core.errors import ProviderError
+from app.core.errors import NotFound, ProviderError
 from app.graphs.lead.deps import LeadDeps
 from app.graphs.runner import run_graph
 from app.main import create_app
 from app.providers.company.places import PlaceMatch
 from app.providers.search.tavily import SearchHit
+from app.repositories import companies_repo
+from app.services.contact_service import ContactTools
 from app.services.enrich_service import EmployerTools
 from tests.factories import NOW, make_job
 from tests.fakes import ScriptedLLM
@@ -198,3 +201,56 @@ def test_unsafe_job_links_are_not_sent_to_the_browser(client, conn):
 
     assert item["url"] is None
     assert client.get(f"/applications/{item['id']}").json()["url"] is None
+
+
+def test_daily_research_reads_the_employers_own_pages_for_contacts(conn):
+    class ContactPages:
+        urls: list[str] = []
+
+        def read(self, url):
+            self.urls.append(url)
+            return "Questions? Email hello@example.co.nz"
+
+    pages = ContactPages()
+    tools = EmployerTools(places=FakePlaces(), contacts=ContactTools(pages, None))
+
+    run_graph("lead", {"profile_id": PROFILE_ID}, _deps(conn, OneSource(make_job()), tools))
+
+    assert pages.urls == ["https://example.co.nz"]
+    assert _facts(conn)[("email", "website")] == "high"
+
+
+def test_contact_facts_do_not_count_as_research(conn):
+    jobs = OneSource(
+        make_job(external_id="contacts-only", company="Contact Only Co"),
+        make_job(external_id="researched", company="Researched Co"),
+    )
+    run_graph("lead", {"profile_id": PROFILE_ID}, _deps(conn, jobs, None))
+    ids = {row["name"]: row["id"] for row in conn.execute("select id, name from companies")}
+    companies_repo.add_fact(conn, ids["Contact Only Co"], "email", "info@example.co.nz",
+                            "website", "high", "https://example.co.nz")
+    companies_repo.add_fact(conn, ids["Contact Only Co"], "phone", "03 000 0000",
+                            "website", "high")
+    companies_repo.add_fact(conn, ids["Researched Co"], "about", "Builds freight software.",
+                            "website", "medium")
+    application_ids = [row["id"] for row in conn.execute("select id from applications")]
+
+    picked = {row["name"] for row in companies_repo.needing_research(conn, application_ids, 10)}
+
+    assert picked == {"Contact Only Co"}
+
+
+@pytest.mark.parametrize("error", [NotFound("employer not found"), psycopg.Error("boom")])
+def test_a_failing_contact_lookup_does_not_stop_the_rest_of_research(conn, error):
+    class BrokenPages:
+        def read(self, url):
+            raise error
+
+    tools = _tools()
+    tools.contacts = ContactTools(BrokenPages(), None)
+
+    run_graph("lead", {"profile_id": PROFILE_ID}, _deps(conn, OneSource(make_job()), tools))
+
+    facts = _facts(conn)
+    assert facts[("about", "website")] == "medium"
+    assert facts[("recent_news", "tavily")] == "check"

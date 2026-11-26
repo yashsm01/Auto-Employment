@@ -12,6 +12,7 @@ from app.graphs.lead.deps import LeadDeps
 from app.graphs.runner import run_graph
 from app.main import create_app
 from app.providers.jobs.gmail_alerts import EmailMessage
+from app.repositories import companies_repo
 from app.workers.outbox_job import process_outbox
 from tests.documents import make_pdf
 from tests.factories import make_job
@@ -380,3 +381,73 @@ def test_a_bounced_email_returns_the_job_to_ready_to_apply(client, conn, sending
     assert (email["status"], email["error"]) == (
         "failed", "Bounced: jobs@example.co.nz does not accept email.")
     assert [i["application_id"] for i in client.get("/outbox").json()["to_send"]] == [app_id]
+
+
+def test_the_outbox_suggests_the_hiring_email_when_the_advert_has_none(client, conn):
+    app_id = _approved(client, conn, description="Build pipelines with Python and Airflow.")
+    company_id = conn.execute(
+        "select j.company_id from applications a join jobs j on j.id = a.job_id where a.id = %s",
+        (app_id,),
+    ).fetchone()["company_id"]
+    companies_repo.add_fact(conn, company_id, "hiring_email", "talent@example.co.nz",
+                            "website", "high")
+    conn.commit()
+
+    view = client.get("/outbox").json()
+
+    assert view["to_send"][0]["suggested_to"] == "talent@example.co.nz"
+
+
+def test_the_outbox_suggests_a_recruiters_email_when_there_is_no_hiring_email(client, conn):
+    app_id = _approved(client, conn, description="Build pipelines with Python and Airflow.")
+    company_id = conn.execute(
+        "select j.company_id from applications a join jobs j on j.id = a.job_id where a.id = %s",
+        (app_id,),
+    ).fetchone()["company_id"]
+    conn.execute(
+        "insert into contacts (company_id, name, role, email, source, confidence) "
+        "values (%s, 'Jane Example', 'recruiter', 'jane@example.co.nz', 'website', 'check')",
+        (company_id,),
+    )
+    conn.commit()
+
+    view = client.get("/outbox").json()
+
+    assert view["to_send"][0]["suggested_to"] == "jane@example.co.nz"
+
+
+def test_the_outbox_does_not_suggest_a_recruiter_found_by_another_source(client, conn):
+    app_id = _approved(client, conn, description="Build pipelines with Python and Airflow.")
+    company_id = conn.execute(
+        "select j.company_id from applications a join jobs j on j.id = a.job_id where a.id = %s",
+        (app_id,),
+    ).fetchone()["company_id"]
+    conn.execute(
+        "insert into contacts (company_id, name, role, email, source, confidence) "
+        "values (%s, 'Sam Example', 'recruiter', 'sam@example.co.nz', 'tavily', 'check')",
+        (company_id,),
+    )
+    conn.commit()
+
+    view = client.get("/outbox").json()
+
+    assert view["to_send"][0]["suggested_to"] is None
+
+
+def test_the_outbox_suggests_the_newest_hiring_email(client, conn):
+    app_id = _approved(client, conn, description="Build pipelines with Python and Airflow.")
+    company_id = conn.execute(
+        "select j.company_id from applications a join jobs j on j.id = a.job_id where a.id = %s",
+        (app_id,),
+    ).fetchone()["company_id"]
+    conn.execute(
+        "insert into company_facts (company_id, field, value, source, confidence, fetched_at) "
+        "values (%s, 'hiring_email', 'old@example.co.nz', 'website', 'high', '2026-01-01'), "
+        "(%s, 'hiring_email', 'new@example.co.nz', 'website', 'high', '2026-11-01')",
+        (company_id, company_id),
+    )
+    conn.commit()
+
+    view = client.get("/outbox").json()
+
+    assert view["to_send"][0]["suggested_to"] == "new@example.co.nz"

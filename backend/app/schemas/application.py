@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.schemas.contacts import EmployerContacts
+
 
 class BoardCard(BaseModel):
     id: UUID
@@ -80,6 +82,7 @@ class EmployerDetail(BaseModel):
     about: str | None
     map_url: str
     facts: list[EmployerFact]
+    contacts: EmployerContacts = Field(default_factory=EmployerContacts)
 
 
 class TimelineEvent(BaseModel):

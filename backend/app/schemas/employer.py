@@ -1,7 +1,10 @@
 from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+from app.schemas.contacts import EmployerContacts
 
 
 class NearbySearch(BaseModel):
@@ -19,6 +22,10 @@ class NearbyEmployer(BaseModel):
     lng: float | None
     map_url: str
     saved: bool
+    rating: float | None = None
+    rating_count: int | None = None
+    hours: list[str] = Field(default_factory=list)
+    business_type: str | None = None
 
 
 class NearbyResults(BaseModel):
@@ -34,6 +41,9 @@ class SaveEmployer(BaseModel):
     website: str | None = Field(default=None, max_length=500)
     lat: float | None = None
     lng: float | None = None
+    rating: float | None = Field(default=None, ge=0, le=5, allow_inf_nan=False)
+    rating_count: int | None = Field(default=None, ge=0)
+    hours: list[Annotated[str, Field(max_length=120)]] = Field(default_factory=list, max_length=7)
 
 
 class SavedEmployer(BaseModel):
@@ -44,6 +54,7 @@ class SavedEmployer(BaseModel):
     website: str | None
     map_url: str
     last_checked: datetime | None
+    contacts: EmployerContacts | None = None
 
 
 class SavedEmployers(BaseModel):

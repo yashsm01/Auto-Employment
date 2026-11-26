@@ -7,6 +7,7 @@ import httpx
 from app.chains.alert_chain import AlertExtractChain
 from app.chains.careers_chain import CareersPageChain
 from app.chains.company_summary_chain import CompanySummaryChain
+from app.chains.manager import get_recruiter_chain
 from app.core.config import Settings
 from app.providers.company.places import PlacesClient
 from app.providers.company.website_reader import WebsiteReader
@@ -19,6 +20,7 @@ from app.providers.jobs.trademe import TradeMeSource
 from app.providers.llm.factory import build_claude
 from app.providers.search.tavily import TavilySearch
 from app.schemas.resume import BoardEntry
+from app.services.contact_service import ContactTools
 from app.services.enrich_service import EmployerTools
 
 
@@ -82,17 +84,21 @@ def build_places(settings: Settings, client: httpx.Client) -> PlacesClient | Non
     return PlacesClient(client, key) if key else None
 
 
-def build_employer_tools(settings: Settings, client: httpx.Client) -> EmployerTools | None:
-    """Only tools with keys. Website text is read only when AI can summarise it."""
+def build_contact_tools(settings: Settings, client: httpx.Client) -> ContactTools:
+    """Contact details are plain code, so no key is needed. Only the hiring check uses AI."""
+    return ContactTools(reader=WebsiteReader(client), recruiter=get_recruiter_chain(settings))
+
+
+def build_employer_tools(settings: Settings, client: httpx.Client) -> EmployerTools:
+    """Maps, search and summaries need their keys. Contact details are always looked up."""
     maps_key = settings.google_maps_api_key.get_secret_value()
     tavily_key = settings.tavily_api_key.get_secret_value()
     llm = build_claude(settings, settings.scoring_model, effort="low")
     summary = CompanySummaryChain(llm) if llm else None
-    if not (maps_key or tavily_key or summary):
-        return None
     return EmployerTools(
         places=PlacesClient(client, maps_key) if maps_key else None,
         reader=WebsiteReader(client) if summary else None,
         search=TavilySearch(client, tavily_key) if tavily_key else None,
         summary=summary,
+        contacts=build_contact_tools(settings, client),
     )

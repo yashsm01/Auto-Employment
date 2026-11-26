@@ -1,13 +1,14 @@
 """The application lifecycle and the data behind the Pipeline and Shortlist screens."""
 
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 from uuid import UUID
 
 import psycopg
 
 from app.core.errors import Conflict, NotFound
 from app.core.normalize import contains_term
+from app.core.urls import safe_url
 from app.repositories import applications_repo, companies_repo, events_repo, runs_repo
 from app.schemas.application import (
     ApplicationDetail,
@@ -21,8 +22,10 @@ from app.schemas.application import (
     ShortlistItem,
     TimelineEvent,
 )
+from app.schemas.contacts import EmployerContacts
 from app.schemas.feedback import Decision
 from app.schemas.job import ScoreResult, StoredJob
+from app.services import contact_service
 
 _COLUMNS = (
     ("shortlisted", "Shortlisted", ("shortlisted",)),
@@ -131,16 +134,6 @@ def _source_label(source: str, external_id: str) -> str:
     return _SOURCE_LABELS.get(source, source)
 
 
-def safe_url(url: str | None) -> str | None:
-    """Links come from third parties, so only plain web links reach the browser."""
-    if not url:
-        return None
-    try:
-        return url if urlsplit(url).scheme in ("http", "https") else None
-    except ValueError:
-        return None
-
-
 def _city(location: str, region: str) -> str:
     """The broad place to show and filter by, so suburbs do not split a city."""
     if contains_term(location, "remote"):
@@ -215,6 +208,9 @@ def detail(
     city = _city(row["location"], row["region"])
     place = row["address"] or f"{row['company']} {city} New Zealand"
     facts = companies_repo.list_facts(conn, row["company_id"]) if row["company_id"] else []
+    contacts = (
+        contact_service.view(conn, row["company_id"]) if row["company_id"] else EmployerContacts()
+    )
     employer = EmployerDetail(
         name=row["company"],
         website=safe_url(row["website"]),
@@ -226,6 +222,7 @@ def detail(
         facts=[
             EmployerFact(**{**fact, "source_url": safe_url(fact["source_url"])}) for fact in facts
         ],
+        contacts=contacts,
     )
     return ApplicationDetail(
         id=row["id"],

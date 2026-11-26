@@ -19,6 +19,12 @@ FIELD_MASK = ",".join(
         "location",
         "websiteUri",
         "nationalPhoneNumber",
+        "googleMapsUri",
+        "rating",
+        "userRatingCount",
+        "regularOpeningHours",
+        "primaryTypeDisplayName",
+        "businessStatus",
     )
 )
 _LEGAL_WORDS = {"ltd", "limited", "nz", "new", "zealand", "the", "group", "co", "company", "inc"}
@@ -35,6 +41,12 @@ class PlaceMatch:
     website: str | None
     phone: str | None
     name: str = ""
+    maps_url: str | None = None
+    rating: float | None = None
+    rating_count: int | None = None
+    hours: tuple[str, ...] = ()
+    business_type: str | None = None
+    business_status: str | None = None
 
 
 def _is_nz_address(address: str | None) -> bool:
@@ -66,6 +78,12 @@ def _to_match(place: dict) -> PlaceMatch:
         website=place.get("websiteUri"),
         phone=place.get("nationalPhoneNumber"),
         name=(place.get("displayName") or {}).get("text") or "",
+        maps_url=place.get("googleMapsUri"),
+        rating=place.get("rating"),
+        rating_count=place.get("userRatingCount"),
+        hours=tuple((place.get("regularOpeningHours") or {}).get("weekdayDescriptions") or ()),
+        business_type=(place.get("primaryTypeDisplayName") or {}).get("text"),
+        business_status=place.get("businessStatus"),
     )
 
 

@@ -65,3 +65,18 @@ def companies_by_id(
         (company_ids,),
     ).fetchall()
     return {str(row["id"]): row for row in rows}
+
+
+def applies_to_company(conn: psycopg.Connection, profile_id: UUID, company_id: UUID) -> bool:
+    """Whether one of this profile's applications is for a job at this employer."""
+    row = conn.execute(
+        """
+        select exists (
+            select 1 from applications a
+            join jobs j on j.id = a.job_id
+            where a.profile_id = %s and j.company_id = %s
+        ) as found
+        """,
+        (profile_id, company_id),
+    ).fetchone()
+    return bool(row["found"])

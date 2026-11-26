@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from "react";
 
 import type { NearbyEmployer } from "../api/employers";
+import EmployerContacts, { OpeningHours, RatingLine, webUrl } from "../components/EmployerContacts";
 import { ErrorNotice } from "../components/Notice";
 import {
   useEmployerSearch,
+  useRefreshContacts,
   useRemoveEmployer,
   useSaveEmployer,
   useSavedEmployers,
@@ -22,6 +24,8 @@ function ResultCard({
   busy: boolean;
   onSave: () => void;
 }) {
+  const website = webUrl(place.website);
+  const mapUrl = webUrl(place.map_url);
   return (
     <article className="card flex flex-wrap items-center justify-between gap-3">
       <div className="flex min-w-0 flex-col gap-1">
@@ -33,12 +37,17 @@ function ResultCard({
         </div>
         {place.address && <span className="text-sm text-muted">{place.address}</span>}
         {place.phone && <span className="text-sm text-muted">{place.phone}</span>}
+        {place.business_type && <span className="text-sm text-muted">{place.business_type}</span>}
+        {place.rating != null && <RatingLine rating={place.rating} count={place.rating_count} />}
+        {place.hours && place.hours.length > 0 && <OpeningHours hours={place.hours} />}
         <div className="flex flex-wrap gap-4 text-sm font-semibold">
-          <a className="text-brand-dark" href={place.map_url} target="_blank" rel="noopener noreferrer">
-            Open map
-          </a>
-          {place.website && (
-            <a className="text-brand-dark" href={place.website} target="_blank" rel="noopener noreferrer">
+          {mapUrl && (
+            <a className="text-brand-dark" href={mapUrl} target="_blank" rel="noopener noreferrer">
+              Open map
+            </a>
+          )}
+          {website && (
+            <a className="text-brand-dark" href={website} target="_blank" rel="noopener noreferrer">
               Website
             </a>
           )}
@@ -68,9 +77,15 @@ export default function Employers() {
   const search = useEmployerSearch();
   const saveMutation = useSaveEmployer();
   const removeMutation = useRemoveEmployer();
+  const refreshMutation = useRefreshContacts();
   const [business, setBusiness] = useState("");
   const [town, setTown] = useState("");
   const [savedNow, setSavedNow] = useState<Set<string>>(new Set());
+  // The saved list does not carry the notes of a lookup, so the page keeps them from the lookup result.
+  const [lookupNotes, setLookupNotes] = useState<Record<string, string[]>>({});
+  // Each card's lookup is tracked by id, so overlapping lookups each keep their own busy state and notes.
+  const [refreshing, setRefreshing] = useState<Set<string>>(new Set());
+  const [lookupError, setLookupError] = useState<Error | null>(null);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -84,7 +99,26 @@ export default function Employers() {
       onSuccess: () => setSavedNow((current) => new Set(current).add(place.place_id)),
     });
 
-  const problem = search.error ?? saveMutation.error ?? removeMutation.error ?? savedList.error;
+  const lookUp = (id: string) => {
+    setLookupError(null);
+    setRefreshing((current) => new Set(current).add(id));
+    refreshMutation
+      .mutateAsync(id)
+      .then((contacts) =>
+        setLookupNotes((current) => ({ ...current, [id]: contacts.notes ?? [] })),
+      )
+      .catch((error: Error) => setLookupError(error))
+      .finally(() =>
+        setRefreshing((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        }),
+      );
+  };
+
+  const problem =
+    search.error ?? saveMutation.error ?? lookupError ?? removeMutation.error ?? savedList.error;
 
   return (
     <>
@@ -157,7 +191,10 @@ export default function Employers() {
             No employers saved yet. Search above, or run a job search to add some automatically.
           </p>
         )}
-        {savedList.data?.items.map((employer) => (
+        {savedList.data?.items.map((employer) => {
+          const website = webUrl(employer.website);
+          const mapUrl = webUrl(employer.map_url);
+          return (
           <div
             key={employer.id}
             className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-2"
@@ -171,14 +208,26 @@ export default function Employers() {
                 {employer.address ? ` · ${employer.address}` : ""}
               </span>
               <div className="flex flex-wrap gap-4 font-semibold">
-                <a className="text-brand-dark" href={employer.map_url} target="_blank" rel="noopener noreferrer">
-                  Map
-                </a>
-                {employer.website && (
-                  <a className="text-brand-dark" href={employer.website} target="_blank" rel="noopener noreferrer">
+                {mapUrl && (
+                  <a className="text-brand-dark" href={mapUrl} target="_blank" rel="noopener noreferrer">
+                    Map
+                  </a>
+                )}
+                {website && (
+                  <a className="text-brand-dark" href={website} target="_blank" rel="noopener noreferrer">
                     Website
                   </a>
                 )}
+              </div>
+              <div className="mt-1">
+                <EmployerContacts
+                  contacts={{
+                    ...employer.contacts,
+                    notes: lookupNotes[employer.id] ?? employer.contacts?.notes ?? [],
+                  }}
+                  onRefresh={() => lookUp(employer.id)}
+                  busy={refreshing.has(employer.id)}
+                />
               </div>
             </div>
             <button
@@ -191,7 +240,8 @@ export default function Employers() {
               Remove
             </button>
           </div>
-        ))}
+          );
+        })}
       </section>
     </>
   );

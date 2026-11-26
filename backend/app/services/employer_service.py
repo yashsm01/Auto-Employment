@@ -8,11 +8,13 @@ from uuid import UUID
 
 import psycopg
 
-from app.core.errors import Conflict, ProviderError
+from app.core.errors import Conflict, NotFound, ProviderError
+from app.core.urls import safe_url
 from app.providers.company.places import PlaceMatch
 from app.providers.company.website_reader import is_allowed_url
 from app.providers.jobs.employer_sites import SiteEmployer
 from app.repositories import companies_repo, employers_repo
+from app.schemas.contacts import EmployerContacts
 from app.schemas.employer import (
     NearbyEmployer,
     NearbyResults,
@@ -21,7 +23,7 @@ from app.schemas.employer import (
     SaveEmployer,
 )
 from app.schemas.resume import ResumeProfile, SearchPreferences
-from app.services.application_service import safe_url
+from app.services import contact_service
 
 MAPS_LABEL = "Google Maps"
 MAX_DISCOVERY_TERMS = 3
@@ -85,8 +87,12 @@ def search_nearby(
                 website=safe_url(place.website),
                 lat=place.lat,
                 lng=place.lng,
-                map_url=_map_url(place.name, place.address),
+                map_url=place.maps_url or _map_url(place.name, place.address),
                 saved=place.place_id in saved_places,
+                rating=place.rating,
+                rating_count=place.rating_count,
+                hours=list(place.hours),
+                business_type=place.business_type,
             )
             for place in found
         ],
@@ -104,6 +110,9 @@ def _store(conn: psycopg.Connection, profile_id: UUID, body: SaveEmployer) -> UU
     ):
         if value:
             companies_repo.add_fact(conn, company_id, field, value, "places", "high")
+    companies_repo.add_place_details(
+        conn, company_id, clean.hours, clean.rating, clean.rating_count
+    )
 
     data = employers_repo.load_data(conn, profile_id, lock=True)
     entries = _saved_entries(data)
@@ -116,8 +125,11 @@ def _store(conn: psycopg.Connection, profile_id: UUID, body: SaveEmployer) -> UU
     return company_id
 
 
-def _to_saved(row: dict[str, Any], last_checked: str | None) -> SavedEmployer:
+def _to_saved(
+    row: dict[str, Any], last_checked: str | None, contacts: EmployerContacts
+) -> SavedEmployer:
     return SavedEmployer(
+        contacts=contacts,
         id=row["id"],
         name=row["name"],
         address=row["address"],
@@ -133,7 +145,11 @@ def list_saved(conn: psycopg.Connection, profile_id: UUID) -> SavedEmployers:
     rows = employers_repo.companies_by_id(conn, [entry["company_id"] for entry in entries])
     return SavedEmployers(
         items=[
-            _to_saved(rows[entry["company_id"]], entry.get("last_checked"))
+            _to_saved(
+                rows[entry["company_id"]],
+                entry.get("last_checked"),
+                contact_service.view(conn, UUID(entry["company_id"])),
+            )
             for entry in entries
             if entry["company_id"] in rows
         ]
@@ -146,7 +162,16 @@ def save(conn: psycopg.Connection, profile_id: UUID, body: SaveEmployer) -> Save
         entries = _saved_entries(employers_repo.load_data(conn, profile_id))
         row = employers_repo.companies_by_id(conn, [str(company_id)])[str(company_id)]
     entry = next(e for e in entries if e["company_id"] == str(company_id))
-    return _to_saved(row, entry.get("last_checked"))
+    return _to_saved(row, entry.get("last_checked"), contact_service.view(conn, company_id))
+
+
+def require_access(conn: psycopg.Connection, profile_id: UUID, company_id: UUID) -> None:
+    """Contacts are shown for saved employers and for employers of this profile's applications."""
+    entries = _saved_entries(employers_repo.load_data(conn, profile_id))
+    if str(company_id) in {entry["company_id"] for entry in entries}:
+        return
+    if not employers_repo.applies_to_company(conn, profile_id, company_id):
+        raise NotFound("employer not found")
 
 
 def remove(conn: psycopg.Connection, profile_id: UUID, company_id: UUID) -> None:

@@ -31,6 +31,7 @@ function detail(overrides: Partial<ApplicationDetail> = {}): ApplicationDetail {
       email: null,
       address: "12 Example St",
       about: "Builds freight software.",
+      contacts: {},
       map_url: "https://www.google.com/maps/search/?api=1&query=12%20Example%20St",
       facts: [
         {
@@ -90,6 +91,70 @@ describe("JobDetail", () => {
     const fact = screen.getByText("New tracking app").closest("div")!.parentElement!;
     expect(within(fact).getByText("Tavily")).toBeInTheDocument();
     expect(within(fact).getByText("Check")).toBeInTheDocument();
+  });
+
+  it("does not link a company website that is not http", async () => {
+    const base = detail();
+    mockApi({
+      "GET /applications/a1": () => ({
+        body: detail({ employer: { ...base.employer, website: "javascript:alert(1)" } }),
+      }),
+    });
+    const user = userEvent.setup();
+    renderPage(page, "/jobs/a1");
+    await screen.findByRole("heading", { name: "Junior Python Developer" });
+
+    await user.click(screen.getByRole("tab", { name: "Employer" }));
+
+    expect(screen.queryByRole("link", { name: "Company website" })).toBeNull();
+  });
+
+  it("does not link a map that is not http", async () => {
+    const base = detail();
+    mockApi({
+      "GET /applications/a1": () => ({
+        body: detail({ employer: { ...base.employer, map_url: "javascript:alert(1)" } }),
+      }),
+    });
+    const user = userEvent.setup();
+    renderPage(page, "/jobs/a1");
+    await screen.findByRole("heading", { name: "Junior Python Developer" });
+
+    await user.click(screen.getByRole("tab", { name: "Employer" }));
+
+    expect(screen.queryByRole("link", { name: /open in google maps/i })).toBeNull();
+  });
+
+  it("shows the employer's contact details without a refresh button", async () => {
+    const base = detail();
+    mockApi({
+      "GET /applications/a1": () => ({
+        body: detail({
+          employer: {
+            ...base.employer,
+            contacts: {
+              phone: "09 111 1111",
+              phone_source: "Google Maps",
+              emails: ["hello@freight.example"],
+              checked_at: "2026-11-25T20:00:00Z",
+            },
+          },
+        }),
+      }),
+    });
+    const user = userEvent.setup();
+    renderPage(page, "/jobs/a1");
+    await screen.findByRole("heading", { name: "Junior Python Developer" });
+
+    await user.click(screen.getByRole("tab", { name: "Employer" }));
+
+    const region = screen.getByRole("region", { name: "Contacts" });
+    expect(within(region).getByRole("link", { name: "hello@freight.example" })).toHaveAttribute(
+      "href",
+      "mailto:hello@freight.example",
+    );
+    expect(within(region).getByText("Checked 26 Nov 2026")).toBeInTheDocument();
+    expect(within(region).queryByRole("button")).toBeNull();
   });
 
   it("shows the contact history", async () => {

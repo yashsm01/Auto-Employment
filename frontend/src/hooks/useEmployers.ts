@@ -2,10 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   listEmployers,
+  refreshContacts,
   removeEmployer,
   saveEmployer,
   searchEmployers,
   type NearbyEmployer,
+  type SavedEmployers,
 } from "../api/employers";
 
 export const useSavedEmployers = () =>
@@ -21,6 +23,25 @@ export function useSaveEmployer() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (place: NearbyEmployer) => saveEmployer(place),
+    onSettled: () => client.invalidateQueries({ queryKey: ["employers"] }),
+  });
+}
+
+export function useRefreshContacts() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => refreshContacts(id),
+    onSuccess: (contacts, id) =>
+      client.setQueryData<SavedEmployers>(["employers"], (current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.map((employer) =>
+                employer.id === id ? { ...employer, contacts } : employer,
+              ),
+            }
+          : current,
+      ),
     onSettled: () => client.invalidateQueries({ queryKey: ["employers"] }),
   });
 }

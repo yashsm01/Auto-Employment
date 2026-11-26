@@ -129,7 +129,7 @@ After updating the code, run `.venv\Scripts\python -m app.db.migrate` once in `b
 
 After you approve a tailored resume on **Resume review**, it waits under **Ready to apply** on **Outbox and follow-ups**.
 
-- **Queue email** sends the cover note with the tailored PDF attached, from your own Gmail. The address box is filled in when the advert gives one ("send your CV to …") or the employer's public record has one, and you can change it.
+- **Queue email** sends the cover note with the tailored PDF attached, from your own Gmail. The address box is filled in when the advert gives one ("send your CV to …") or the employer's contact details have one (see [Employer contact details](#employer-contact-details)), and you can change it.
 - **I applied on the job site** is for SEEK, LinkedIn and other jobs you apply for on the site. The app tracks the job and reminds you to follow up.
 
 The rules:
@@ -149,6 +149,33 @@ EMAIL_SEND_ENABLED=true
 Sending signs in to `smtp.gmail.com` over TLS, and refuses to sign in to any other server without encryption. `EMAIL_SMTP_HOST` and `EMAIL_SMTP_PORT` change the server.
 
 After updating the code, run `.venv\Scripts\python -m app.db.migrate` once in `backend` to add the Outbox columns.
+
+## Employer contact details
+
+For each employer you save, the app shows its contact details: phone, email, website, contact and careers pages, a LinkedIn company link, address, map link, opening hours and rating. Each line says where it came from.
+
+**Where you see them**
+- **Employers page:** saved employer cards show the contact details, with a **Get contact details** button. Nearby search results show what Google Maps returns (phone, address, business type, rating, hours). Save an employer to see its contact details.
+- **Job, Employer tab:** the same details for that job's employer. The button is on the Employers page.
+
+**Where they come from**
+- **Google Maps** (`GOOGLE_MAPS_API_KEY`): phone, rating and opening hours. Business type is shown on search results only. A saved employer's map link is built from its saved address.
+- **The employer's own website:** email addresses, hiring addresses (careers@, jobs@, hr@ and similar), a phone number, links to the contact and careers pages, a LinkedIn company link, and sometimes a named person who handles hiring.
+
+**When lookups run**
+- When you save an employer, in the background.
+- During the daily search, for employers of shortlisted jobs that have not been researched yet. At most 10 a run (`MAX_EMPLOYER_PROFILES_PER_RUN`).
+- When you press **Get contact details**. This reads the website again, even if it was checked recently.
+- Automatic lookups skip an employer checked in the last 30 days. If its website could not be read because of a timeout, a dropped connection, rate limiting or a server error, the lookup does not count as checked and the next automatic lookup reads it again. If the site refused access (for example a 403), the lookup still counts as checked, so use **Get contact details** to try again sooner.
+
+**Limits**
+- At most 3 pages per employer: the home page, then the contact and careers pages it links to. Pages are read through the same reader as the rest of the app, which respects robots.txt. Only pages on the employer's own site are read. A careers page on a hiring system such as Workday, or on a separate careers subdomain, is shown as a link, not read.
+- LinkedIn is never read. The app shows only the company page link found on the employer's site, for you to open.
+- Addresses are never guessed, such as firstname@company.
+- Only the text of the careers and contact pages goes to AI, and only when `ANTHROPIC_API_KEY` is set. The AI looks for people the page names for hiring. Without a Claude key that check is skipped and the other details still work.
+- A named person is kept only when the page shows their name, a hiring job title and a short quote (25 words or fewer) that appears on the page. Their email or phone is shown only when the page gives it.
+
+**The Outbox address.** When an application has no address in its advert, the Outbox suggests the first of these it finds: a hiring address from the employer's site, the email of a named hiring contact, then the general email.
 
 ## AI phone calls and WhatsApp updates (Phase 4)
 

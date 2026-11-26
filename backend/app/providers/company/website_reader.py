@@ -2,6 +2,7 @@
 
 import ipaddress
 import re
+from typing import Protocol
 from urllib.parse import urlsplit
 
 import httpx
@@ -26,6 +27,10 @@ _BLOCKED_DOMAINS = (
     "glassdoor.com",
     "glassdoor.co.nz",
 )
+
+
+class PageReader(Protocol):
+    def read(self, url: str) -> str: ...
 
 
 def is_allowed_url(url: str) -> bool:

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import type { ApplicationDetail } from "../api/pipeline";
+import EmployerContacts, { webUrl } from "../components/EmployerContacts";
 import { ErrorNotice, ExampleTag } from "../components/Notice";
 import PreparationTab from "../components/PreparationTab";
 import { useApplication, useApplicationDecision } from "../hooks/useApplication";
@@ -97,6 +98,8 @@ function MatchTab({ job }: { job: ApplicationDetail }) {
 
 function EmployerTab({ job }: { job: ApplicationDetail }) {
   const { employer } = job;
+  const website = webUrl(employer.website);
+  const mapUrl = webUrl(employer.map_url);
   return (
     <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-4">
       <section className="card flex flex-col gap-3">
@@ -107,18 +110,20 @@ function EmployerTab({ job }: { job: ApplicationDetail }) {
         {employer.address && <span className="text-sm">{employer.address}</span>}
         {employer.phone && <span className="text-sm">{employer.phone}</span>}
         <div className="flex flex-wrap gap-4 text-sm font-semibold">
-          <a
-            className="text-brand-dark"
-            href={employer.map_url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Open in Google Maps
-          </a>
-          {employer.website && (
+          {mapUrl && (
             <a
               className="text-brand-dark"
-              href={employer.website}
+              href={mapUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open in Google Maps
+            </a>
+          )}
+          {website && (
+            <a
+              className="text-brand-dark"
+              href={website}
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -126,6 +131,10 @@ function EmployerTab({ job }: { job: ApplicationDetail }) {
             </a>
           )}
         </div>
+      </section>
+      <section aria-label="Contacts" className="card flex flex-col gap-2">
+        <h2 className="m-0 font-display text-[17px] font-bold">Contacts</h2>
+        <EmployerContacts contacts={employer.contacts ?? {}} />
       </section>
       <section className="card flex flex-col gap-2">
         <h2 className="m-0 font-display text-[17px] font-bold">Employer facts</h2>

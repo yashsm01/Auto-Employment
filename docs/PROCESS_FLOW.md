@@ -70,7 +70,7 @@ stateDiagram-v2
 - With a Claude key, up to 30 jobs per run get AI scores, best embedding matches first. All others use free keyword scoring. A job needing something you lack is capped at 40.
 - Embeddings rank jobs when a Gemini key is set. A job sharing a resume skill is never dropped by embeddings alone. Similarity is calculated per run, and vectors are not stored yet.
 - Past approvals and skips go into the AI prompt, or adjust keyword scores by at most 10 points.
-- A final `enrich_shortlisted` step researches up to 10 new shortlisted employers per run with Places, the company website, Tavily and an AI summary. Every fact keeps its source and confidence.
+- A final `enrich_shortlisted` step researches up to 10 new shortlisted employers per run with Places, the company website, Tavily and an AI summary. Each one's contact details are looked up in the same step. Every fact keeps its source and confidence.
 - Gmail alerts are read by AI. Their links are stored and never opened.
 - NZBN and Companies Office lookups are not built, because the response format is not publicly documented.
 - With a Google Maps key and a real resume, each search first finds employers for your titles and towns, rotating towns day by day, and saves them. Removed employers are not added back.
@@ -115,7 +115,7 @@ Deep search is an addition to the original plan. It researches one job and saves
 
 ## Outbox rules in Phase 3
 
-- An approved resume waits on the Outbox under "Ready to apply" (`status = approved`, no `apply_method`). The suggested address is the first published address in the advert, then the employer's public email (`companies.email`, then `company_facts` field `email`). No-reply addresses and job-board domains are skipped.
+- An approved resume waits on the Outbox under "Ready to apply" (`status = approved`, no `apply_method`). The suggested address is the first published address in the advert, then the hiring address (`company_facts` `hiring_email`, newest first), then a named recruiter's email (`contacts` role `recruiter`, source `website`), then the general email (`companies.email`, then `company_facts` `email`, newest first). See Employer contact rules for how those are stored. No-reply addresses and job-board domains are skipped.
 - **Queue email** checks the address, then adds an `outbox` row (`kind = application`) with the cover note, the tailored PDF and the subject "Application for {title} – {name}", and sets `apply_method = email`.
 - **I applied on the job site** sets `status = sent`, `apply_method = manual` and a follow-up reminder date. The app never emails these.
 - `process_outbox` runs every 15 minutes, and straight after queueing or retrying:
@@ -127,6 +127,68 @@ Deep search is an addition to the original plan. It researches one job and saves
 - Only one outbox run happens at a time (a database advisory lock), so an email is never sent twice. Job titles are put on one line before they go into a subject or file name.
 - **Replies:** a reply counts only if at least one matching email is not automatic. Auto-Submitted, X-Autoreply, Precedence auto_reply, bulk or junk, or an "Automatic reply" or "Out of office" subject marks it as automatic.
 - **Bounces:** checked before replies with the search `from:(mailer-daemon OR postmaster) after:{date} "{address}"`. A bounce marks the email `failed` ("Bounced: … does not accept email."), cancels follow-ups and any queued call, returns the job to `approved` with no `apply_method` (so it shows under "Ready to apply"), and sends a WhatsApp update.
+
+## Employer contact rules
+
+Code: `services/contact_service.py`, `services/contact_extract.py`, `chains/recruiter_chain.py`.
+
+**When a lookup runs**
+- On save (background job `refresh_contacts`, not forced), in the daily research for employers picked by `needing_research`, and on `POST /employers/{id}/contacts` (forced).
+- A lookup that is not forced returns early if `contacts_checked_at` is within 30 days (`RECHECK_AFTER`). The forced one always reads.
+- The background job logs its errors and never raises. In research, the lookup runs in a savepoint: a failure is recorded and the rest of research carries on.
+
+**Pages read**
+- The home page is `companies.website`. A website with no scheme (such as `www.example.co.nz`) is read at `https://`; a website that has a scheme other than http(s) is not read. A website on a blocked job board or LinkedIn, or an IP address, is not read either. The lookup then notes that instead.
+- The contact page is the first link on the home page whose text or path contains "contact" or "get in touch". Fragments are dropped first, so `#contact` is the home page itself: it is not read again, and not stored as a page link.
+- The careers page is the highest-scoring careers link on the home page. Main careers text (careers, jobs, vacancies, join us and similar) scores 3, other career words score 2, and a career word in the path or a hiring-system link scores 1. Scholarship, graduate, intern, blog, news and story pages lose 1.
+- A page is read only if its host equals the website's host after removing `www.`. Hiring systems (Workday, SmartRecruiters and similar) and other subdomains such as `careers.` are stored as links but not read.
+- The contact page is read before the careers page. At most 3 reads per lookup, home page included, so the most AI checks are 2.
+
+**Emails and phones**
+- Every address on each page read is taken in page order, lower-cased. Addresses that are not valid, are no-reply (`no-reply`, `donotreply`, `mailer-daemon`, `postmaster`) or are on a job-board domain are skipped. Addresses on other domains are kept if the page shows them.
+- Hiring local parts (the part before @): careers, jobs, job, hr, recruit, recruitment, recruiting, talent, people, employment, vacancies, apply. These are stored as `hiring_email`. Any other address is stored as `email`.
+- `companies.email` is set to the first general address, only while it is empty. Hiring addresses never go there.
+- Replace, not add: a lookup that read every page it attempted replaces this employer's `website` facts for the contact fields (`email`, `hiring_email`, `phone`, `contact_page`, `careers_page`, `linkedin`) with what it found, so a changed phone or address stops being shown. A lookup where a page read failed only adds, so a partly blocked site does not erase known details. Facts from other sources are never deleted.
+- NZ phone numbers on each page are stored as written on the page, once per number.
+
+**Named recruiter check (AI)**
+- The AI reads only the contact and careers pages, at most 20,000 characters each. It never sees the home page. With no Claude key, or with only the home page read, no check runs.
+- A person is kept only if all of these hold:
+  - the name appears on the page;
+  - the quote is 25 words or fewer and appears on the page;
+  - the role matches recruit, talent, human resources, HR, people, hiring or careers;
+  - the email, if one is given, appears on the page.
+- A name found on more than one page is kept once. A phone is kept only if it matches a number on that page.
+- A kept person is stored as a `contacts` row: role `recruiter`, source `website`, confidence `check`, with their title, the page URL and the checked time. Their email is not stored as an `email` or `hiring_email` fact, nor as `companies.email`.
+- Old website recruiter rows are replaced only when at least one check finished without an error. If the AI failed on every page, or no check ran, the old rows stay.
+
+**Facts and sources**
+- From the website, confidence `high`, with `source_url` set to the page it came from: `email`, `hiring_email`, `phone`, `contact_page`, `careers_page` and `linkedin`. If the same address or number was already stored from a job advert (`job_post`), the website copy takes over that row (source `website`, the new `source_url` and time). A number already stored from Google Maps (`places`) keeps its Maps source.
+- Order: newest first. Within one lookup, the order the addresses and numbers appear on the pages (home page, contact page, then careers page). The Outbox suggests the newest `hiring_email` and `email` first.
+- From Google Maps (`places`, `high`): `phone`, `address`, `website`, `opening_hours` (days joined with `; `) and `rating` (for example `4.4 (7)`). A rating is shown only with its count.
+- Phone shown: Google Maps first, then the website, then the job advert, each labelled with its source.
+- LinkedIn: the first `linkedin.com/company/` link found, the home page first. It is stored as a fact, and fills `companies.linkedin_url` only while that is empty. It is never fetched.
+- Contact and careers page links come from the home page only, and are stored even when not read, if the address is allowed.
+
+**`contacts_checked_at`**
+- Set on every lookup that is not skipped and runs a check, unless a page read failed for a transient reason: a request failure or timeout ("request failed (...)"), HTTP 429, or HTTP 5xx. Those lookups leave it as it was, so the next automatic lookup reads again.
+- Also set when a refusal (HTTP 401, 403, 404 or 410, "the site refused access (...)", "this address is not allowed") or "No website to read." ends the lookup, so a site that refuses access is not retried automatically for 30 days. The button still reads it again.
+- Not set on the 30-day skip, or when there is no reader.
+
+**Notes.** A lookup lists each problem it met, using one of these five texts. The notes are not stored, and a skipped lookup returns none.
+- "No website to read."
+- "Website reading is not set up."
+- "Could not read the website (address not allowed)."
+- "Could not read the website | contact page | careers page ({reason})."
+- "Could not check for a hiring contact."
+
+**What `needing_research` ignores.** An employer counts as researched when it has a `places` or `tavily` fact, or a `website` fact in a field other than `email`, `hiring_email`, `phone`, `contact_page`, `careers_page` or `linkedin`. Contact facts alone do not count, so the employer can be picked again by the daily research. The lookup itself then returns early until 30 days have passed.
+
+**Access.** `GET` and `POST /employers/{id}/contacts` work only for a saved employer of this profile, or the employer of one of this profile's applications. Anything else returns 404 "employer not found".
+
+**Removing an employer.** It leaves the saved list and later searches do not add it back. Its stored contact details and company facts are kept. Daily research of a shortlisted job's employer is not affected by this.
+
+**Suggested Outbox address.** The first valid address in the advert is used. Otherwise the first of these: a `hiring_email` fact (newest first), then a named recruiter's email (website source), then `companies.email`, then the other `email` facts (newest first). Each candidate is checked and lower-cased, and the first valid one is used.
 
 ## Calls and WhatsApp rules in Phase 4
 

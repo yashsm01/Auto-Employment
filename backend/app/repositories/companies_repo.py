@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -49,6 +51,12 @@ def add_job_post_facts(conn: psycopg.Connection, company_id: UUID, job: JobDraft
             )
 
 
+# Facts the contact lookup writes from the employer's own pages. They are not research.
+CONTACT_FIELDS = [
+    "email", "hiring_email", "phone", "contact_page", "careers_page", "linkedin",
+]
+
+
 def needing_research(
     conn: psycopg.Connection, application_ids: list[UUID], limit: int
 ) -> list[dict[str, Any]]:
@@ -64,14 +72,16 @@ def needing_research(
             where a.id = any(%s)
               and not exists (
                   select 1 from company_facts f
-                  where f.company_id = c.id and f.source in ('places', 'website', 'tavily')
+                  where f.company_id = c.id
+                    and (f.source in ('places', 'tavily')
+                         or (f.source = 'website' and f.field <> all(%s::text[])))
               )
             order by c.id, a.score desc
         ) employers
         order by score desc, name
         limit %s
         """,
-        (application_ids, limit),
+        (application_ids, CONTACT_FIELDS, limit),
     ).fetchall()
 
 
@@ -119,13 +129,78 @@ def add_fact(
     )
 
 
+def replace_fact(
+    conn: psycopg.Connection,
+    company_id: UUID,
+    field: str,
+    value: str,
+    source: str,
+    confidence: str,
+) -> None:
+    """Keep one value for this field from this source, such as the latest Maps rating."""
+    conn.execute(
+        "delete from company_facts where company_id = %s and field = %s and source = %s",
+        (company_id, field, source),
+    )
+    add_fact(conn, company_id, field, value, source, confidence)
+
+
+def add_place_details(
+    conn: psycopg.Connection,
+    company_id: UUID,
+    hours: Sequence[str],
+    rating: float | None,
+    rating_count: int | None,
+) -> None:
+    """Google Maps opening hours and rating. A rating needs its count to be shown."""
+    if hours:
+        replace_fact(conn, company_id, "opening_hours", "; ".join(hours), "places", "high")
+    if rating is not None and rating_count is not None:
+        replace_fact(
+            conn, company_id, "rating", f"{rating:g} ({rating_count})", "places", "high"
+        )
+
+
+def delete_website_facts(conn: psycopg.Connection, company_id: UUID, fields: list[str]) -> None:
+    """Forget the employer's own page facts for these fields. Other sources are kept."""
+    conn.execute(
+        "delete from company_facts where company_id = %s and source = 'website' "
+        "and field = any(%s::text[])",
+        (company_id, fields),
+    )
+
+
+def upsert_website_fact(
+    conn: psycopg.Connection,
+    company_id: UUID,
+    field: str,
+    value: str,
+    source_url: str | None,
+    fetched_at: datetime,
+) -> None:
+    """A contact fact the employer's own page states. An advert's copy of it becomes the
+    website's (the page is the stronger, current source). Maps facts keep their source."""
+    conn.execute(
+        """
+        insert into company_facts (company_id, field, value, source, confidence, source_url,
+                                   fetched_at)
+        values (%s, %s, %s, 'website', 'high', %s, %s)
+        on conflict (company_id, field, value) do update set
+            source = 'website', confidence = 'high', source_url = excluded.source_url,
+            fetched_at = excluded.fetched_at
+        where company_facts.source in ('job_post', 'website')
+        """,
+        (company_id, field, value, source_url, fetched_at),
+    )
+
+
 def list_facts(conn: psycopg.Connection, company_id: UUID) -> list[dict[str, Any]]:
     return conn.execute(
         """
         select field, value, source, confidence, source_url
         from company_facts
         where company_id = %s
-        order by field, fetched_at
+        order by field, fetched_at desc
         """,
         (company_id,),
     ).fetchall()

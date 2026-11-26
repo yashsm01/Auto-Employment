@@ -10,6 +10,6 @@ def run(state: LeadState, config: RunnableConfig) -> LeadState:
     if deps.employer_tools is None:
         return {"employers_researched": 0}
     count, errors = enrich_service.research_employers(
-        deps.conn, state["passed_ids"], deps.employer_tools, deps.max_employer_profiles
+        deps.conn, state["passed_ids"], deps.employer_tools, deps.max_employer_profiles, deps.now
     )
     return {"employers_researched": count, "errors": [*state["errors"], *errors]}

@@ -35,10 +35,32 @@ def company_emails(conn: psycopg.Connection, company_id: UUID | None) -> list[st
         return []
     rows = conn.execute(
         "select value from company_facts where company_id = %s and field = 'email' "
-        "order by fetched_at",
+        "order by fetched_at desc",
         (company_id,),
     ).fetchall()
     return [row["value"] for row in rows]
+
+
+def hiring_emails(conn: psycopg.Connection, company_id: UUID | None) -> list[str]:
+    if company_id is None:
+        return []
+    rows = conn.execute(
+        "select value from company_facts where company_id = %s and field = 'hiring_email' "
+        "order by fetched_at desc",
+        (company_id,),
+    ).fetchall()
+    return [row["value"] for row in rows]
+
+
+def recruiter_emails(conn: psycopg.Connection, company_id: UUID | None) -> list[str]:
+    if company_id is None:
+        return []
+    rows = conn.execute(
+        "select email from contacts where company_id = %s and role = 'recruiter' "
+        "and source = 'website' and email is not null order by name",
+        (company_id,),
+    ).fetchall()
+    return [row["email"] for row in rows]
 
 
 def queue(

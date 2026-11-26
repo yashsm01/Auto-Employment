@@ -3,6 +3,7 @@
 import re
 from urllib.parse import urljoin, urlsplit
 
+from app.core.urls import without_fragment
 from app.providers.company.website_reader import is_allowed_url
 
 _BOARD_PATTERNS = (
@@ -67,8 +68,11 @@ def find_careers_link(page: str, base_url: str) -> str | None:
     home = site_host(base_url)
     best: tuple[int, int, str] | None = None
     for text, href in _LINK.findall(page):
-        url = urljoin(base_url, href)
-        host = site_host(url)
+        try:
+            url = without_fragment(urljoin(base_url, href))
+            host = site_host(url)
+        except ValueError:  # malformed href on an untrusted page
+            continue
         hiring_site = any(_on(host, domain) for domain in _HIRING_SITES)
         if not (_on(host, home) or hiring_site) or not is_allowed_url(url):
             continue

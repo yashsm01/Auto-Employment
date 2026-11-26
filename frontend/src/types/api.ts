@@ -159,6 +159,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/employers/{company_id}/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Contacts */
+        get: operations["get_contacts_employers__company_id__contacts_get"];
+        put?: never;
+        /**
+         * Look Up Contacts
+         * @description Read the employer's pages now, even if they were checked recently.
+         */
+        post: operations["look_up_contacts_employers__company_id__contacts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/employers/{company_id}": {
         parameters: {
             query?: never;
@@ -845,6 +866,37 @@ export interface components {
              */
             updated_at: string;
         };
+        /** EmployerContacts */
+        EmployerContacts: {
+            /** Phone */
+            phone?: string | null;
+            /** Phone Source */
+            phone_source?: string | null;
+            /** Emails */
+            emails?: string[];
+            /** Hiring Emails */
+            hiring_emails?: string[];
+            /** Website */
+            website?: string | null;
+            /** Contact Page */
+            contact_page?: string | null;
+            /** Careers Page */
+            careers_page?: string | null;
+            /** Linkedin */
+            linkedin?: string | null;
+            /** Hours */
+            hours?: string[];
+            /** Rating */
+            rating?: number | null;
+            /** Rating Count */
+            rating_count?: number | null;
+            /** Recruiters */
+            recruiters?: components["schemas"]["Recruiter"][];
+            /** Checked At */
+            checked_at?: string | null;
+            /** Notes */
+            notes?: string[];
+        };
         /** EmployerDetail */
         EmployerDetail: {
             /** Name */
@@ -863,6 +915,7 @@ export interface components {
             map_url: string;
             /** Facts */
             facts: components["schemas"]["EmployerFact"][];
+            contacts?: components["schemas"]["EmployerContacts"];
         };
         /** EmployerFact */
         EmployerFact: {
@@ -914,6 +967,14 @@ export interface components {
             map_url: string;
             /** Saved */
             saved: boolean;
+            /** Rating */
+            rating?: number | null;
+            /** Rating Count */
+            rating_count?: number | null;
+            /** Hours */
+            hours?: string[];
+            /** Business Type */
+            business_type?: string | null;
         };
         /** NearbyResults */
         NearbyResults: {
@@ -1148,6 +1209,19 @@ export interface components {
             /** Warning */
             warning?: string | null;
         };
+        /** Recruiter */
+        Recruiter: {
+            /** Name */
+            name: string;
+            /** Role */
+            role: string;
+            /** Email */
+            email?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+        };
         /** ResumeDecision */
         ResumeDecision: {
             /**
@@ -1230,6 +1304,12 @@ export interface components {
             lat?: number | null;
             /** Lng */
             lng?: number | null;
+            /** Rating */
+            rating?: number | null;
+            /** Rating Count */
+            rating_count?: number | null;
+            /** Hours */
+            hours?: string[];
         };
         /** SavedEmployer */
         SavedEmployer: {
@@ -1250,6 +1330,7 @@ export interface components {
             map_url: string;
             /** Last Checked */
             last_checked: string | null;
+            contacts?: components["schemas"]["EmployerContacts"] | null;
         };
         /** SavedEmployers */
         SavedEmployers: {
@@ -1790,6 +1871,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SavedEmployer"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_contacts_employers__company_id__contacts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                company_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployerContacts"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    look_up_contacts_employers__company_id__contacts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                company_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployerContacts"];
                 };
             };
             /** @description Validation Error */

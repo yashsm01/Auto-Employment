@@ -45,6 +45,12 @@ def test_places_requests_only_the_needed_fields():
         "places.location",
         "places.websiteUri",
         "places.nationalPhoneNumber",
+        "places.googleMapsUri",
+        "places.rating",
+        "places.userRatingCount",
+        "places.regularOpeningHours",
+        "places.primaryTypeDisplayName",
+        "places.businessStatus",
     }
     assert seen["body"] == {
         "textQuery": "Example Freight Tech Auckland New Zealand",
@@ -63,6 +69,68 @@ def test_places_maps_a_matching_business():
     assert (place.lat, place.lng) == (-36.85, 174.76)
     assert place.website == "https://example.invalid/"
     assert place.phone == "09 000 0000"
+
+
+def test_places_returns_hours_rating_and_type():
+    place = _place()
+    place.update(
+        {
+            "googleMapsUri": "https://maps.google.com/?cid=1",
+            "rating": 4.6,
+            "userRatingCount": 38,
+            "regularOpeningHours": {
+                "weekdayDescriptions": ["Monday: 9:00 AM – 5:00 PM", "Sunday: Closed"]
+            },
+            "primaryTypeDisplayName": {"text": "Software company", "languageCode": "en"},
+            "businessStatus": "OPERATIONAL",
+        }
+    )
+    client = _client(lambda _: httpx.Response(200, json={"places": [place]}))
+
+    match = PlacesClient(client, "KEY").find("Example Freight Tech", "Auckland")
+
+    assert match.maps_url == "https://maps.google.com/?cid=1"
+    assert match.rating == 4.6
+    assert match.rating_count == 38
+    assert match.hours == ("Monday: 9:00 AM – 5:00 PM", "Sunday: Closed")
+    assert match.business_type == "Software company"
+    assert match.business_status == "OPERATIONAL"
+
+
+def test_places_new_details_are_optional():
+    match = PlacesClient(
+        _client(lambda _: httpx.Response(200, json={"places": [_place()]})), "KEY"
+    ).find("Example Freight Tech", "Auckland")
+
+    assert match.maps_url is None
+    assert match.rating is None
+    assert match.rating_count is None
+    assert match.hours == ()
+    assert match.business_type is None
+    assert match.business_status is None
+
+
+def test_save_employer_accepts_rating_and_hours_and_old_bodies():
+    from pydantic import ValidationError
+
+    from app.schemas.employer import SaveEmployer
+
+    base = {"place_id": "place-1", "name": "Example Freight Tech Ltd"}
+
+    old = SaveEmployer(**base)
+    assert old.rating is None
+    assert old.rating_count is None
+    assert old.hours == []
+
+    new = SaveEmployer(
+        **base, rating=4.2, rating_count=12, hours=["Monday: 9:00 AM – 5:00 PM"]
+    )
+    assert (new.rating, new.rating_count, new.hours) == (4.2, 12, ["Monday: 9:00 AM – 5:00 PM"])
+
+    with pytest.raises(ValidationError):
+        SaveEmployer(**base, hours=["x"] * 8)
+    with pytest.raises(ValidationError):
+        SaveEmployer(**base, hours=["x" * 121])
 
 
 def test_places_ignores_a_different_business():

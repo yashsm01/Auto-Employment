@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from app.chains.prep_chains import ExploreChain, ExtractChain, PlanChain, WriteChain
+from app.chains.recruiter_chain import RecruiterChain
 from app.chains.resume_profile_chain import ResumeChain, ResumeProfileChain
 from app.chains.resume_sections_chain import ResumeSectionsChain
 from app.chains.score_chain import (
@@ -20,6 +21,12 @@ def get_resume_chain(settings: Settings) -> ResumeChain | None:
     """The AI resume reader, or None when no Claude key is configured."""
     llm = build_claude(settings, settings.resume_model, effort="medium")
     return ResumeProfileChain(llm) if llm else None
+
+
+def get_recruiter_chain(settings: Settings) -> RecruiterChain | None:
+    """The AI check for named hiring contacts, or None when no Claude key is configured."""
+    llm = build_claude(settings, settings.scoring_model, effort="low")
+    return RecruiterChain(llm) if llm else None
 
 
 def get_chain(

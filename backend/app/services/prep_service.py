@@ -14,6 +14,7 @@ from psycopg.types.json import Jsonb
 
 from app.core.config import Settings
 from app.core.errors import BadRequest, Conflict, NotFound
+from app.core.urls import safe_url
 from app.providers.company.website_reader import is_allowed_url
 from app.providers.llm.base import LLMProvider
 from app.repositories import prep_repo
@@ -28,7 +29,6 @@ from app.schemas.prep import (
     SourceLink,
     WriteDraft,
 )
-from app.services.application_service import safe_url
 
 REQUIRED_KINDS = ("about", "news", "pay", "practical", "interview")
 MAX_QUOTE_WORDS = 25

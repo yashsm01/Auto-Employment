@@ -71,11 +71,18 @@ def follow_up_body(title: str, sent_on: date, name: str | None, number: int) -> 
 
 
 def suggested_address(conn: psycopg.Connection, row: dict[str, Any]) -> str | None:
-    """An address the employer published: in the advert first, then their public record."""
+    """An address the employer published: the advert first, then who they name for hiring."""
     found = find_emails(row["description"] or "")
     if found:
         return found[0]
-    for address in [row["company_email"], *outbox_repo.company_emails(conn, row["company_id"])]:
+    company_id = row["company_id"]
+    candidates = [
+        *outbox_repo.hiring_emails(conn, company_id),
+        *outbox_repo.recruiter_emails(conn, company_id),
+        row["company_email"],
+        *outbox_repo.company_emails(conn, company_id),
+    ]
+    for address in candidates:
         if address and is_valid_email(address.strip().casefold()):
             return address.strip().casefold()
     return None

@@ -1,17 +1,21 @@
 """Employer records: free facts for every job, deeper research for shortlisted ones."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
 from uuid import UUID
 
 import psycopg
 
 from app.chains.company_summary_chain import CompanySummaryChain
-from app.core.errors import ProviderError
+from app.core.errors import NotFound, ProviderError
 from app.providers.company.places import PlaceMatch
+from app.providers.company.website_reader import PageReader
 from app.providers.search.tavily import SearchHit
 from app.repositories import companies_repo, jobs_repo
 from app.schemas.job import JobDraft, StoredJob
+from app.services import contact_service
+from app.services.contact_service import ContactTools
 from app.services.lead_service import job_hash
 
 
@@ -30,10 +34,6 @@ class PlaceFinder(Protocol):
     def find(self, name: str, city: str) -> PlaceMatch | None: ...
 
 
-class PageReader(Protocol):
-    def read(self, url: str) -> str: ...
-
-
 class WebSearch(Protocol):
     def search(self, query: str) -> list[SearchHit]: ...
 
@@ -44,6 +44,7 @@ class EmployerTools:
     reader: PageReader | None = None
     search: WebSearch | None = None
     summary: CompanySummaryChain | None = None
+    contacts: ContactTools | None = None
 
 
 def _add_place_facts(conn, company_id: UUID, place: PlaceMatch) -> None:
@@ -55,10 +56,17 @@ def _add_place_facts(conn, company_id: UUID, place: PlaceMatch) -> None:
     ):
         if value:
             companies_repo.add_fact(conn, company_id, field, value, "places", "high")
+    companies_repo.add_place_details(
+        conn, company_id, place.hours, place.rating, place.rating_count
+    )
 
 
 def _research(
-    conn: psycopg.Connection, row: dict[str, Any], tools: EmployerTools, errors: dict[str, None]
+    conn: psycopg.Connection,
+    row: dict[str, Any],
+    tools: EmployerTools,
+    errors: dict[str, None],
+    now: datetime,
 ) -> None:
     company_id, name = row["id"], row["name"]
     city = row["region"] or row["location"].split(",")[0].strip()
@@ -79,6 +87,14 @@ def _research(
         try:
             sources.append(("website", tools.reader.read(website)))
         except ProviderError as error:
+            errors[str(error)] = None
+
+    if tools.contacts is not None:
+        # A savepoint: a failed lookup is undone and the rest of research carries on.
+        try:
+            with conn.transaction():
+                contact_service.lookup(conn, company_id, tools.contacts, now)
+        except (ProviderError, NotFound, psycopg.Error) as error:
             errors[str(error)] = None
 
     if tools.search:
@@ -117,10 +133,11 @@ def research_employers(
     application_ids: list[UUID],
     tools: EmployerTools,
     limit: int,
+    now: datetime,
 ) -> tuple[int, list[str]]:
     """Research new shortlisted employers. A failing tool is reported and the run continues."""
     rows = companies_repo.needing_research(conn, application_ids, limit)
     errors: dict[str, None] = {}
     for row in rows:
-        _research(conn, row, tools, errors)
+        _research(conn, row, tools, errors, now)
     return len(rows), list(errors)

@@ -4,14 +4,19 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from app.chains.manager import get_chain
 from app.core.config import Settings
-from app.core.deps import get_places, get_settings
+from app.core.deps import get_contact_tools, get_places, get_settings
 from app.core.errors import ProviderError
+from app.graphs.lead.deps import LeadDeps
+from app.graphs.runner import run_graph
 from app.main import create_app
 from app.providers.company.places import PlaceMatch
 from app.providers.jobs.employer_sites import SiteEmployer
-from app.services import employer_service
+from app.services import contact_service, employer_service
+from app.services.contact_service import ContactTools
 from app.services.source_service import build_sources
+from tests.factories import NOW, make_job
 
 pytestmark = pytest.mark.postgres
 
@@ -43,13 +48,49 @@ class FakePlaces:
         return self.places
 
 
-def _make_client(database_url, tmp_path, places, **settings):
+HOME = "https://acme.co.nz/"
+
+
+class _OneJob:
+    name = "one"
+
+    def __init__(self, job) -> None:
+        self.job = job
+
+    def search(self, keywords):
+        return [self.job]
+
+
+class FakeWebsite:
+    """Serves canned pages and records every URL read. Unknown pages are a 404."""
+
+    def __init__(self) -> None:
+        self.pages: dict[str, str] = {}
+        self.urls: list[str] = []
+
+    def read(self, url: str) -> str:
+        self.urls.append(url)
+        if url not in self.pages:
+            raise ProviderError("website", "HTTP 404")
+        return self.pages[url]
+
+
+def _make_client(database_url, tmp_path, places, contacts=None, **settings):
     app = create_app()
     app.dependency_overrides[get_settings] = lambda: Settings(
         database_url=database_url, upload_dir=tmp_path, _env_file=None, **settings
     )
     app.dependency_overrides[get_places] = lambda: places
+    app.dependency_overrides[get_contact_tools] = lambda: contacts or ContactTools(
+        reader=None, recruiter=None
+    )
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def no_background_lookup(monkeypatch):
+    """Saving starts a contact lookup in the background. Tests that want it run it themselves."""
+    monkeypatch.setattr("app.api.employers.refresh_contacts", lambda settings, company_id: None)
 
 
 @pytest.fixture
@@ -58,8 +99,14 @@ def places():
 
 
 @pytest.fixture
-def client(database_url, tmp_path, places):
-    with _make_client(database_url, tmp_path, places) as test_client:
+def website():
+    return FakeWebsite()
+
+
+@pytest.fixture
+def client(database_url, tmp_path, places, website):
+    contacts = ContactTools(reader=website, recruiter=None)
+    with _make_client(database_url, tmp_path, places, contacts=contacts) as test_client:
         yield test_client
 
 
@@ -224,3 +271,100 @@ def _body(name: str, website: str = "https://acme.co.nz/"):
         lat=None,
         lng=None,
     )
+
+
+def test_saving_an_employer_looks_up_its_contacts(client, conn, website, monkeypatch):
+    website.pages[HOME] = "Welcome. Email info@acme.co.nz for enquiries."
+
+    def look_up_now(settings, company_id):
+        contact_service.lookup(conn, company_id, ContactTools(website, None), NOW)
+        conn.commit()
+
+    monkeypatch.setattr("app.api.employers.refresh_contacts", look_up_now)
+
+    assert _save(client).status_code == 200
+
+    contacts = client.get("/employers").json()["items"][0]["contacts"]
+    assert website.urls == [HOME]
+    assert contacts["emails"] == ["info@acme.co.nz"]
+    assert contacts["website"] == HOME
+
+
+def test_get_contact_details_refreshes_on_request(client, website):
+    _save(client).raise_for_status()
+    employer_id = client.get("/employers").json()["items"][0]["id"]
+    website.pages[HOME] = "Email info@acme.co.nz"
+
+    first = client.post(f"/employers/{employer_id}/contacts").json()
+    website.pages[HOME] = "Email info@acme.co.nz or sales@acme.co.nz"
+    second = client.post(f"/employers/{employer_id}/contacts").json()
+
+    assert first["emails"] == ["info@acme.co.nz"]
+    assert set(second["emails"]) == {"info@acme.co.nz", "sales@acme.co.nz"}
+    assert second["notes"] == []
+    assert second["checked_at"] is not None
+    assert website.urls == [HOME, HOME]  # forced: read again inside the 30 days
+    assert client.get(f"/employers/{employer_id}/contacts").json()["emails"] == second["emails"]
+
+
+def test_job_detail_includes_employer_contacts(client, conn, website):
+    website.pages[HOME] = "Email info@acme.co.nz"
+    job = make_job(external_id="acme-1", company="Acme Software", company_website=HOME)
+    deps = LeadDeps(
+        conn=conn, sources=[_OneJob(job)], score_chain=get_chain("score"), now=NOW
+    )
+    run_graph("lead", {"profile_id": PROFILE_ID}, deps)
+    company_id, app_id = conn.execute(
+        """
+        select j.company_id, a.id from applications a join jobs j on j.id = a.job_id
+        where j.external_id = 'acme-1'
+        """
+    ).fetchone().values()
+    contact_service.lookup(conn, company_id, ContactTools(website, None), NOW)
+    conn.commit()
+
+    detail = client.get(f"/applications/{app_id}").json()
+
+    assert detail["employer"]["contacts"]["emails"] == ["info@acme.co.nz"]
+
+
+def test_another_profiles_employer_contacts_are_not_found(client, conn):
+    other_profile = uuid4()
+    conn.execute(
+        "insert into profiles (id, full_name) values (%s, 'Other Person')", (other_profile,)
+    )
+    other_company = employer_service.save(conn, other_profile, _body("Other Co")).id
+    conn.commit()
+
+    assert client.get(f"/employers/{other_company}/contacts").status_code == 404
+    assert client.post(f"/employers/{other_company}/contacts").status_code == 404
+    assert client.get(f"/employers/{uuid4()}/contacts").status_code == 404
+
+
+def test_saving_stores_google_hours_and_rating_and_a_new_rating_replaces_the_old(client, conn):
+    place = {
+        "place_id": "place-acme", "name": "Acme Software",
+        "rating": 4.6, "rating_count": 120, "hours": ["Mon 9am-5pm"],
+    }
+    client.post("/employers", json=place).raise_for_status()
+    client.post("/employers", json={**place, "rating": 4.7, "rating_count": 130}).raise_for_status()
+
+    facts = conn.execute(
+        "select field, value, source from company_facts "
+        "where field in ('rating', 'opening_hours') order by field"
+    ).fetchall()
+    saved = client.get("/employers").json()["items"][0]["contacts"]
+
+    assert facts == [
+        {"field": "opening_hours", "value": "Mon 9am-5pm", "source": "places"},
+        {"field": "rating", "value": "4.7 (130)", "source": "places"},
+    ]
+    assert (saved["rating"], saved["rating_count"]) == (4.7, 130)
+    assert saved["hours"] == ["Mon 9am-5pm"]
+
+
+@pytest.mark.parametrize("body", [{"rating": 5.1}, {"rating": -0.1}, {"rating_count": -1}])
+def test_a_rating_outside_its_range_is_refused(client, body):
+    response = client.post("/employers", json={"place_id": "p", "name": "Acme", **body})
+
+    assert response.status_code == 422
