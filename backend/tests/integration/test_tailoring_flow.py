@@ -4,9 +4,9 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-from pypdf import PdfReader
 from fastapi.testclient import TestClient
 from psycopg.types.json import Jsonb
+from pypdf import PdfReader
 
 from app.chains.manager import get_chain
 from app.chains.resume_sections_chain import ResumeSectionsChain, SectionsExtraction

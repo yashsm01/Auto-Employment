@@ -13,9 +13,6 @@ create table if not exists skill_decisions (
     primary key (profile_id, skill_key)
 );
 alter table skill_decisions enable row level security;
--- True when a "have" added the skill, so undoing it removes the skill again. Older "have" rows
--- and rows from before this column default to false, so undo never removes what the user had.
-alter table skill_decisions add column if not exists added boolean not null default false;
 
 -- Drafts wait in the Outbox until the user approves them.
 alter table outbox drop constraint if exists outbox_status_check;

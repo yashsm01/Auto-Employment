@@ -126,3 +126,33 @@ def test_application_status_rejects_unknown_values(conn):
 
 def test_migrations_allow_prep_runs(conn):
     conn.execute("insert into graph_runs (graph, status) values ('prep', 'ok')")
+
+
+def test_migration_0010_adds_the_added_flag_to_an_existing_database(empty_database_url, tmp_path):
+    # Migrate a database as it was after 0009 (with a skill decision saved), then apply 0010.
+    before = tmp_path / "before"
+    before.mkdir()
+    for path in MIGRATIONS.glob("*.sql"):
+        if path.name < "0010":
+            shutil.copy(path, before / path.name)
+
+    with connect(empty_database_url) as conn:
+        apply_migrations(conn, before)
+        conn.execute("insert into profiles (full_name) values ('Example Person')")
+        conn.execute(
+            "insert into skill_decisions (profile_id, skill_key, skill, decision) "
+            "select id, 'python', 'Python', 'have' from profiles"
+        )
+        conn.commit()
+
+        result = apply_migrations(conn, MIGRATIONS)
+
+        assert result.applied == ["0010_skill_decisions_added.sql"]
+        column = conn.execute(
+            "select is_nullable, column_default from information_schema.columns "
+            "where table_name = 'skill_decisions' and column_name = 'added'"
+        ).fetchone()
+        assert column["is_nullable"] == "NO"
+        assert column["column_default"] == "false"
+        row = conn.execute("select added from skill_decisions").fetchone()
+        assert row["added"] is False

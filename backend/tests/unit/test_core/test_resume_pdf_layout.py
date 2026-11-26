@@ -30,7 +30,8 @@ def _pdf_lines(title: str, tmp_path) -> list[str]:
     path = tmp_path / "cv.pdf"
     render_resume_pdf(ContactDetails(name="Sample Person"), sections, path)
     reader = PdfReader(io.BytesIO(path.read_bytes()))
-    return "\n".join(page.extract_text(extraction_mode="layout") for page in reader.pages).splitlines()
+    text = "\n".join(page.extract_text(extraction_mode="layout") for page in reader.pages)
+    return text.splitlines()
 
 
 def test_a_long_title_wraps_and_does_not_run_into_the_dates(tmp_path):

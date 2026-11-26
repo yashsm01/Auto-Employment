@@ -55,9 +55,10 @@ class ResumeSectionsChain:
         self._llm = llm
 
     def run(self, text: str, contact: ContactDetails | None = None) -> BaseSections:
+        redacted = redact_contact_details(text, contact_for_text(contact, text))
         extraction = self._llm.parse(
             system=SYSTEM_PROMPT,
-            user=f"<resume>\n{redact_contact_details(text, contact_for_text(contact, text))}\n</resume>",
+            user=f"<resume>\n{redacted}\n</resume>",
             schema=SectionsExtraction,
             max_tokens=16000,
         )
