@@ -15,4 +15,5 @@ def run(state: ResumeState, config: RunnableConfig) -> ResumeState:
         deps.sections_chain,
         state["contact"],
     )
-    return {"sections": sections}
+    # Tailoring uses sections only with roles; a roles-less read still shows in the builder.
+    return {"sections": resume_build_service.with_roles(sections)}

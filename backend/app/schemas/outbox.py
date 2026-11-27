@@ -29,6 +29,7 @@ class ToSendItem(BaseModel):
     application_id: UUID
     title: str
     company: str
+    application_kind: Literal["advert", "speculative"] = "advert"
     suggested_to: str | None = None
     job_url: str | None = None
     pdf_url: str | None = None
@@ -41,6 +42,7 @@ class OutboxItem(BaseModel):
     title: str
     company: str
     kind: Literal["application", "follow_up", "after_call"]
+    application_kind: Literal["advert", "speculative"] = "advert"
     to: str
     subject: str
     scheduled_at: datetime
@@ -53,6 +55,7 @@ class WaitingItem(BaseModel):
     title: str
     company: str
     apply_method: Literal["email", "manual"]
+    application_kind: Literal["advert", "speculative"] = "advert"
     to: str | None = None
     applied_at: datetime | None = None
     follow_ups: int

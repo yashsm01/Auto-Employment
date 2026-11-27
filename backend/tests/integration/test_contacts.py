@@ -1,9 +1,11 @@
 from datetime import timedelta
 
+import psycopg
 import pytest
 
 from app.chains.recruiter_chain import RecruiterChain, RecruiterFound, RecruiterResult
 from app.core.errors import ProviderError
+from app.db.client import connect
 from app.repositories import companies_repo
 from app.schemas.contacts import Recruiter
 from app.services import contact_service
@@ -373,3 +375,84 @@ def test_a_transient_failure_leaves_the_site_due_for_an_automatic_retry(conn, er
 
     assert reader.urls == [HOME, HOME, CONTACT, CAREERS]
     assert contact_service.view(conn, company_id).checked_at == NOW + timedelta(hours=1)
+
+
+def test_a_failed_read_records_the_attempt_but_not_a_check(conn):
+    company_id = _company(conn)
+    reader = FakeReader(errors={HOME: ProviderError("website", "request failed (timeout)")})
+
+    contact_service.lookup(conn, company_id, _tools(reader), NOW)
+
+    row = conn.execute(
+        "select contacts_attempted_at, contacts_checked_at from companies where id = %s",
+        (company_id,),
+    ).fetchone()
+    assert row["contacts_attempted_at"] == NOW
+    assert row["contacts_checked_at"] is None
+
+
+def test_the_no_unsolicited_statement_blocks_but_is_never_listed_as_a_fact(conn):
+    company_id = _company(conn)
+    pages = {HOME: "Welcome to Example Ltd. We do not accept unsolicited applications."}
+    contact_service.lookup(conn, company_id, _tools(FakeReader(pages)), NOW)
+    conn.commit()
+
+    fields = {fact["field"] for fact in companies_repo.list_facts(conn, company_id)}
+    stored = conn.execute(
+        "select count(*) as n from company_facts "
+        "where company_id = %s and field = 'no_unsolicited'",
+        (company_id,),
+    ).fetchone()["n"]
+
+    assert "no_unsolicited" not in fields
+    assert stored == 1
+
+
+class _ProbingReader(FakeReader):
+    """Records whether the employer's company row is free to lock while a page is read."""
+
+    def __init__(self, probe, pages) -> None:
+        super().__init__(pages)
+        self.probe = probe
+        self.free_during_reads: list[bool] = []
+
+    def read(self, url):
+        self.free_during_reads.append(self.probe())
+        return super().read(url)
+
+
+class _ProbingRecruiter:
+    """Records whether the company row is free to lock while the AI checks a page."""
+
+    def __init__(self, probe) -> None:
+        self.probe = probe
+        self.free_during_checks: list[bool] = []
+
+    def run(self, text, name):
+        self.free_during_checks.append(self.probe())
+        return _jane()
+
+
+def test_no_row_lock_is_held_while_employer_pages_and_ai_checks_run(conn, database_url):
+    company_id = _company(conn)
+    conn.commit()
+
+    def row_is_free() -> bool:
+        with connect(database_url) as other:
+            try:
+                other.execute("select id from companies where id = %s for update nowait",
+                              (company_id,))
+                return True
+            except psycopg.errors.LockNotAvailable:
+                return False
+
+    reader = _ProbingReader(row_is_free, _pages())
+    recruiter = _ProbingRecruiter(row_is_free)
+    tools = ContactTools(reader=reader, recruiter=recruiter)
+
+    contact_service.lookup(conn, company_id, tools, NOW)
+    conn.commit()
+
+    assert reader.free_during_reads == [True, True, True]
+    assert recruiter.free_during_checks == [True, True]
+    assert contact_service.view(conn, company_id).emails == ["info@example.co.nz"]

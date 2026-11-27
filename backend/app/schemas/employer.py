@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -55,6 +55,8 @@ class SavedEmployer(BaseModel):
     map_url: str
     last_checked: datetime | None
     contacts: EmployerContacts | None = None
+    outreach_status: Literal["emailed", "replied", "blocked"] | None = None
+    outreach_at: datetime | None = None
 
 
 class SavedEmployers(BaseModel):

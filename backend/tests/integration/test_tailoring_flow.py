@@ -609,3 +609,33 @@ def test_review_coverage_matches_the_shortlist_when_the_cv_is_blank(client, conn
     shortlist = coverage_service.for_application(conn, PROFILE_ID, application_id)
     assert view["tailored"] is None
     assert view["coverage"]["required_text"] == shortlist.required_text == "1 of 3"
+
+
+def test_a_first_ai_read_without_roles_never_reaches_the_tailored_pdf(client, conn, settings):
+    _upload_resume(client)
+    application_id = _shortlist_job(conn)
+    conn.execute("update applications set status = 'tailoring' where id = %s", (application_id,))
+    conn.commit()
+    # No saved sections: the first AI read finds skills but no roles.
+    sections_llm = ScriptedLLM(SectionsExtraction(summary="", roles=[], skills=["Python", "SQL"]))
+    tailor_llm = ScriptedLLM(_draft())
+    deps = ResumeDeps(
+        conn=conn,
+        sections_chain=ResumeSectionsChain(sections_llm),
+        tailor_chain=TailorChain(tailor_llm),
+        check_chain=None,
+        upload_dir=settings.upload_dir,
+        now=datetime(2026, 11, 24, tzinfo=UTC),
+    )
+
+    result = run_graph("resume", {"application_id": application_id}, deps)
+
+    assert result.status == "ok"
+    assert len(sections_llm.calls) == 1
+    assert tailor_llm.calls == []  # a roles-less read is not tailored
+    view = client.get(f"/applications/{application_id}/resume").json()
+    assert view["tailored"] is None
+    pdf = client.get(view["pdf_url"])
+    text = "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf.content)).pages)
+    assert "Built data pipelines with Python and Airflow for 3 teams." in text
+    assert "Wrote SQL reports for the finance team." in text

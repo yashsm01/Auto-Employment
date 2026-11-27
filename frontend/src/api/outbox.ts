@@ -8,7 +8,14 @@ export type WaitingItem = components["schemas"]["WaitingItem"];
 export type FollowUpMode = components["schemas"]["FollowUpSettings"]["mode"];
 export type Outcome = components["schemas"]["OutcomeRequest"]["action"];
 
+export type ContactRow = components["schemas"]["ContactRow"];
+export type AdvertContact = components["schemas"]["AdvertContact"];
+
 export const getOutbox = () => request<OutboxView>("/outbox");
+export const getOutboxContacts = () =>
+  request<components["schemas"]["OutboxContacts"]>("/outbox/contacts");
+export const findContacts = (applicationId: string) =>
+  postJson<ContactRow>(`/applications/${applicationId}/find-contacts`);
 export const queueEmail = (id: string, to: string) =>
   postJson<OutboxView>(`/applications/${id}/send`, { to });
 export const markApplied = (id: string) => postJson<OutboxView>(`/applications/${id}/applied`);

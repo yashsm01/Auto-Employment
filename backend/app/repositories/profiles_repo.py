@@ -12,6 +12,11 @@ def first_profile_id(conn: psycopg.Connection) -> UUID | None:
     return row["id"] if row else None
 
 
+def all_profile_ids(conn: psycopg.Connection) -> list[UUID]:
+    rows = conn.execute("select id from profiles order by created_at, id").fetchall()
+    return [row["id"] for row in rows]
+
+
 def load_search_context(
     conn: psycopg.Connection, profile_id: UUID | str
 ) -> tuple[ResumeProfile, SearchPreferences] | None:
@@ -174,6 +179,11 @@ def write_resume_terms(
 
 def set_full_name(conn: psycopg.Connection, profile_id: UUID | str, name: str) -> None:
     conn.execute("update profiles set full_name = %s where id = %s", (name, profile_id))
+
+
+def saved_regions(conn: psycopg.Connection, profile_id: UUID) -> list[str]:
+    row = conn.execute("select regions from profiles where id = %s", (profile_id,)).fetchone()
+    return list(row["regions"]) if row else []
 
 
 def update_profile(conn: psycopg.Connection, profile_id: UUID, update: ProfileUpdate) -> None:

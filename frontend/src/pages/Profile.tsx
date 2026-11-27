@@ -425,6 +425,14 @@ function ProfileForm({ profile, busy, onSave }: FormProps) {
   );
 }
 
+/** Says how many found or shortlisted jobs a save closed, because they lie outside the new areas. */
+function closedOutsideMessage(count: number): string | null {
+  if (count <= 0) return null;
+  return count === 1
+    ? "Closed 1 job outside your areas."
+    : `Closed ${count} jobs outside your areas.`;
+}
+
 export default function Profile() {
   const { data, error, isPending } = useProfile();
   const saveMutation = useSaveProfile();
@@ -433,6 +441,7 @@ export default function Profile() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [closedNote, setClosedNote] = useState<string | null>(null);
   // The form reloads only after a save or upload, so a background refresh keeps unsaved edits.
   const [formVersion, setFormVersion] = useState(0);
 
@@ -444,6 +453,7 @@ export default function Profile() {
   const resetNotices = () => {
     setMessage(null);
     setProblem(null);
+    setClosedNote(null);
   };
 
   const handleFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -463,8 +473,9 @@ export default function Profile() {
   const handleSave = async (body: ProfileUpdate, thenSearch: boolean) => {
     resetNotices();
     try {
-      await saveMutation.mutateAsync(body);
+      const saved = await saveMutation.mutateAsync(body);
       setFormVersion((version) => version + 1);
+      setClosedNote(closedOutsideMessage(saved.closed_outside_areas));
       if (!thenSearch) {
         setMessage("Profile saved.");
         return;
@@ -492,6 +503,11 @@ export default function Profile() {
       </header>
 
       {message && <SuccessNotice message={message} />}
+      {closedNote && (
+        <p role="status" className="m-0 text-sm font-semibold text-warn">
+          {closedNote}
+        </p>
+      )}
       {problem && <ErrorNotice message={problem} />}
 
       <section className="card flex flex-wrap items-center justify-between gap-3">

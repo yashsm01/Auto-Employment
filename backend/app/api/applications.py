@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks
 from app.core.deps import ConnDep, ProfileIdDep, SettingsDep
 from app.schemas.application import ApplicationDetail, DecisionRequest, DecisionResponse
 from app.services import application_service, prep_service
+from app.workers.contacts_job import refresh_contacts
 from app.workers.prep_job import process_prep_queue
 from app.workers.tailor_job import process_tailoring_queue
 
@@ -32,6 +33,9 @@ def decide(
     conn.commit()
     if body.action == "approve":
         background.add_task(process_tailoring_queue, settings)  # tailor the resume next
+        company_id = application_service.company_of(conn, application_id)
+        if company_id is not None:
+            background.add_task(refresh_contacts, settings, company_id)  # find their contacts
         now = datetime.now(UTC)
         if prep_service.on_approved(conn, profile_id, application_id, settings, now):
             conn.commit()

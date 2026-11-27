@@ -1,6 +1,6 @@
 # Process flow
 
-The full target flow. **Phases 1 and 2 build the lead graph and the resume graph.** Sending and calls come in later phases, and nothing is sent to employers yet.
+The full target flow. **Phases 1 and 2 build the lead graph and the resume graph.** Sending, calls, Auto mode and Google Maps outreach are built on top; nothing is sent to employers unless you turn sending on.
 
 ## End to end
 
@@ -57,7 +57,7 @@ stateDiagram-v2
     sent --> followed_up: no reply in 5 days
     sent --> replied
     followed_up --> replied
-    followed_up --> closed: 2 follow-ups, no reply
+    followed_up --> closed: 2 follow-ups, no reply (enquiry: 1)
     replied --> [*]
     closed --> [*]
 ```
@@ -116,17 +116,17 @@ Deep search is an addition to the original plan. It researches one job and saves
 ## Outbox rules in Phase 3
 
 - An approved resume waits on the Outbox under "Ready to apply" (`status = approved`, no `apply_method`). The suggested address is the first published address in the advert, then the hiring address (`company_facts` `hiring_email`, newest first), then a named recruiter's email (`contacts` role `recruiter`, source `website`), then the general email (`companies.email`, then `company_facts` `email`, newest first). See Employer contact rules for how those are stored. No-reply addresses and job-board domains are skipped.
-- **Queue email** checks the address, then adds an `outbox` row (`kind = application`) with the cover note, the tailored PDF and the subject "Application for {title} – {name}", and sets `apply_method = email`.
+- **Queue email** checks the address, then adds an `outbox` row (`kind = application`) with the cover note, the tailored PDF and the subject "Application for {title} – {name}", and sets `apply_method = email`. An advert whose text or URL says to apply on the job site only is refused with 400 "This advert asks you to apply on the job site." Speculative records are not affected.
 - **I applied on the job site** sets `status = sent`, `apply_method = manual` and a follow-up reminder date. The app never emails these.
 - `process_outbox` runs every 15 minutes, and straight after queueing or retrying:
-  1. **Replies**, when Gmail reading is set up: for each emailed application still waiting, a Gmail search `from:{address} after:{date applied}`. A match sets `replied`, cancels pending follow-ups and adds a `replied` event.
-  2. **Follow-ups**: an emailed application whose `next_follow_up` has arrived gets a follow-up `outbox` row, replying in the same thread (`In-Reply-To` the first email). After two follow-ups, the next due date closes the job instead.
+  1. **Replies**, when Gmail reading is set up: for each emailed application still waiting, a Gmail search `from:{address} after:{date applied}`. A match sets `replied`, cancels pending follow-ups and adds a `replied` event. For an enquiry, the employer is also blocked from further enquiries (`outreach_blocks`, reason `replied`).
+  2. **Follow-ups**: an emailed application whose `next_follow_up` has arrived gets a follow-up `outbox` row, replying in the same thread (`In-Reply-To` the first email). After two follow-ups, the next due date closes the job instead, with the note "Closed: no reply after two follow-ups". An enquiry (speculative, see Google Maps outreach rules) gets one follow-up, then closes with "Closed: no reply after one follow-up".
   3. **Sending**, only with `EMAIL_SEND_ENABLED=true`: due rows go oldest first while today's count (NZ day) is under the daily limit. A sent application moves to `sent`, a sent follow-up to `followed_up`, and the next follow-up date is 5 working days later. A failure is retried 15 minutes later, and becomes `failed` after 3 tries. A refused app password stops the run.
-- Cancelling a queued application email returns the job to "Ready to apply". Cancelling a follow-up stops follow-ups for that job.
+- Cancelling a queued application email returns the job to "Ready to apply". Cancelling a follow-up stops follow-ups for that job. Cancelling a queued enquiry closes it, with the note "Closed: you cancelled the enquiry".
 - Working days skip weekends and national NZ public holidays (Mondayised where the Holidays Act says so, Easter, King's Birthday, Labour Day and Matariki). Regional anniversary days are not skipped. Calls also wait for working days.
 - Only one outbox run happens at a time (a database advisory lock), so an email is never sent twice. Job titles are put on one line before they go into a subject or file name.
 - **Replies:** a reply counts only if at least one matching email is not automatic. Auto-Submitted, X-Autoreply, Precedence auto_reply, bulk or junk, or an "Automatic reply" or "Out of office" subject marks it as automatic.
-- **Bounces:** checked before replies with the search `from:(mailer-daemon OR postmaster) after:{date} "{address}"`. A bounce marks the email `failed` ("Bounced: … does not accept email."), cancels follow-ups and any queued call, returns the job to `approved` with no `apply_method` (so it shows under "Ready to apply"), and sends a WhatsApp update.
+- **Bounces:** checked before replies with the search `from:(mailer-daemon OR postmaster) after:{date} "{address}"`. A bounce marks the email `failed` ("Bounced: … does not accept email."), cancels follow-ups and any queued call, returns the job to `approved` with no `apply_method` (so it shows under "Ready to apply"), and sends a WhatsApp update. For an enquiry, the application is closed instead, and the employer is blocked (reason `bounced`).
 
 ## Employer contact rules
 
@@ -134,6 +134,8 @@ Code: `services/contact_service.py`, `services/contact_extract.py`, `chains/recr
 
 **When a lookup runs**
 - On save (background job `refresh_contacts`, not forced), in the daily research for employers picked by `needing_research`, and on `POST /employers/{id}/contacts` (forced).
+- On approving a job (background `refresh_contacts`, not forced), in Auto mode when an approved advert has no address (see Auto mode rules), and before each Google Maps enquiry (see Google Maps outreach rules).
+- The Outbox **Find contacts** button (`POST /applications/{id}/find-contacts`) is forced.
 - A lookup that is not forced returns early if `contacts_checked_at` is within 30 days (`RECHECK_AFTER`). The forced one always reads.
 - The background job logs its errors and never raises. In research, the lookup runs in a savepoint: a failure is recorded and the rest of research carries on.
 
@@ -175,6 +177,11 @@ Code: `services/contact_service.py`, `services/contact_extract.py`, `chains/recr
 - Also set when a refusal (HTTP 401, 403, 404 or 410, "the site refused access (...)", "this address is not allowed") or "No website to read." ends the lookup, so a site that refuses access is not retried automatically for 30 days. The button still reads it again.
 - Not set on the 30-day skip, or when there is no reader.
 
+**`contacts_attempted_at`**
+- Set on every read of the employer's website, even when the read failed. Auto mode uses it to retry at most once an hour.
+- Not set when there is no website, the address is not allowed, or there is no reader.
+- A read that fails with no pages, other than a transient failure (see above), stores `site_unreadable`, which the Outbox contacts list reports as "Could not read the website". A later read with pages clears it.
+
 **Notes.** A lookup lists each problem it met, using one of these five texts. The notes are not stored, and a skipped lookup returns none.
 - "No website to read."
 - "Website reading is not set up."
@@ -192,7 +199,7 @@ Code: `services/contact_service.py`, `services/contact_extract.py`, `chains/recr
 
 ## Calls and WhatsApp rules in Phase 4
 
-- **When a call is made:** an emailed application reaches its closing date after two follow-ups with no reply. With `CALLS_ENABLED`, an OmniDimension key and an agent ID, the app tries a call before closing the job. It queues a `calls` row (`purpose = follow_up`) to the employer's published number, `companies.phone` first, then `company_facts` field `phone`, converted to +64, and stops further follow-ups. It doesn't queue a call when:
+- **When a call is made:** an emailed application reaches its closing date after two follow-ups with no reply. An enquiry (speculative) never makes a call. With `CALLS_ENABLED`, an OmniDimension key and an agent ID, the app tries a call before closing the job. It queues a `calls` row (`purpose = follow_up`) to the employer's published number, `companies.phone` first, then `company_facts` field `phone`, converted to +64, and stops further follow-ups. It doesn't queue a call when:
   - there is no usable number,
   - the job already had a call, or
   - the month's limit (`MAX_CALLS_PER_MONTH`, NZ month) is reached.
@@ -213,12 +220,53 @@ Code: `services/contact_service.py`, `services/contact_extract.py`, `chains/recr
 
 ## Auto mode rules in Phase 5
 
-- **Settings:** stored in `profiles.auto_mode` (on/off) and `settings.ai.auto` (`min_score` 0–100, default 80; `daily_limit` 0–20, default 5). It's off by default.
+- **Settings:** stored in `profiles.auto_mode` (on/off) and `settings.ai.auto` (`min_score` 0–100, default 80; `daily_limit` 0–20, default 5). It's off by default. The Google Maps settings are in `profiles.prospects_enabled`, `profiles.prospects_per_day` and `profiles.business_types` (see Google Maps outreach rules).
 - **When it runs:** first in every outbox run, under the same lock, before replies, follow-ups, sending and calls. It skips any profile that is switched off or has no uploaded resume of its own.
 - **Jobs:** shortlisted jobs with `score >= min_score` from real sources (never `example`), best score first, up to `daily_limit` per NZ day (counted by `applications.auto_approved_at`). Each is approved through the normal decision (feedback row, `approved` event), marked `auto_approved_at`, noted "Approved by auto mode", and passed to deep search's approval hook.
 - **Resumes:** status `ready` and `auto_approved_at` set → the resume is approved through the normal review decision. Resumes for jobs the user approved by hand are never approved automatically.
-- **Emails:** for auto-approved jobs that are `approved` with no `apply_method`, the suggested address (from the advert, then the employer's public record) is queued with `queue_email`. With no address, the job stays in "Ready to apply" and a one-time WhatsApp update says to apply on the job site.
+- **Emails:** for auto-approved jobs that are `approved` with no `apply_method`:
+  - An advert that says to apply on the job site only is never queued. `applies_on_site_only` in `services/advert_contact.py` is true for these phrases: "apply online only", "apply only through", "applications through seek only", "only applications submitted", "please do not contact", "no direct approaches", "no direct contact", "no agencies or direct contact", "no direct applications", "via our careers site only", or a `jobs.govt.nz` address. It gets a one-time WhatsApp update to apply on the job site.
+  - Otherwise the suggested address (`suggested_address`: the advert first, then the employer's record) is queued with `queue_email`.
+  - With no address, if the employer has a website that is not yet checked (`contacts_checked_at` empty), auto mode waits. The lookup runs first, at most once an hour (`contacts_attempted_at`), and the wait ends 24 hours after the auto approval.
+  - Otherwise, including no website, or a site already checked with no email, the job stays in "Ready to apply" and gets the one-time WhatsApp update: "Auto mode approved {title} at {company}. No email address found ({reason}). Apply on the job site from the Outbox." The reason is the one the Outbox contacts list gives (`outbox_contacts.missing_reason`), so an unreadable site and a checked site with no email read differently.
 - **Not affected by auto mode:** the email send switch, the daily send limit, follow-ups, reply detection, AI calls and their monthly limit, and the WhatsApp settings all apply unchanged.
+
+## Google Maps outreach rules (Phase 6)
+
+Code: `services/prospect_service.py`, `workers/lead_job.py` (`run_prospecting`), `workers/scheduler.py`, `services/employer_service.py`, `services/auto_service.py` (`_queue_speculative`), `services/outbox_service.py`.
+
+- **Switch.** Runs only when Auto mode and `profiles.prospects_enabled` are both on. Saving with Auto mode off stores the switch as off.
+- **Switch off.** Turning the switch off (directly, or with Auto mode) runs `outbox_service.stop_speculative_outreach` in the same save: queued, draft and failed enquiries are cancelled, approved enquiries that were never sent are closed with "Closed: Google Maps outreach was turned off", and sent ones stop their follow-ups (they stay sent, so replies and bounces are still seen). While the switch is off, queueing, follow-up scheduling and automatic sending skip enquiries, and a skipped queued one is cancelled, not sent. A user's own Send on a draft is unchanged.
+- **One run at a time.** `run_daily` takes a session advisory try-lock per profile before it counts today's enquiries. A run that finds the lock held creates nothing and logs a line.
+- **When it runs.** After the daily search (`daily_search_hour`, 7 am NZ), once per run. A failure is logged and does not stop the scheduler.
+- **Business types.** With `business_types` set, discovery searches "{type} in {town}" for each town and type, instead of job titles. The saved `discovery_cursor` says which search is next and moves on by one for each search made, so the next run carries on. This applies even with Auto mode off.
+- **Daily cap.** At most `prospects_per_day` (1 to 10, default 5) new speculative applications per New Zealand day. Only this profile's speculative records count, from midnight NZ.
+- **Order and filters.** Saved employers, oldest saved first. An employer is passed over, with nothing counted and tried again on a later day, when it has no address, is outside the areas, or has any application from this profile. An employer already in `outreach_blocks` is passed over.
+- **Lookup first.** The employer's website is looked up (not forced, so a check within 30 days is reused). If the lookup fails, the employer is passed over for this run.
+- **Unsolicited wording.** When a page says one of "no unsolicited", "do not accept unsolicited", "not accept unsolicited", "no recruitment agencies" or "no cold calls", the lookup stores company fact `no_unsolicited`. The employer is then blocked with reason `no_unsolicited` and counted as `blocked`.
+- **No email.** When the site gives no hiring or general email, nothing is created, the employer is counted as `skipped_no_email`, and it is not blocked.
+- **Record.** Otherwise one `applications` row with `kind = speculative`, status `approved` and `auto_approved_at` set. It has the master CV (in its chosen design) as a PDF and Word file, and a cover note. Its job is one "Speculative application" Maps job per employer (`source = nearby`).
+- **Cover note.** With a Claude key, AI writes it. Sentences that add a number or skill the CV does not have, or mention a declined skill, are dropped. Without AI, it is: "I'm getting in touch to ask whether {name} has any work coming up. My resume is attached, and I'd welcome the chance to talk about how I could help."
+- **No roles.** When the master CV has no roles, the run stops at the first employer that passes the filters and sends the note "Add your work history in the Resume builder to start Google Maps outreach." once per New Zealand day.
+- **Queueing (Auto mode).** A blocked employer closes the enquiry with "Closed: the employer is blocked from enquiries". No address closes it with "Closed: no email address published". Otherwise it is queued to the suggested address, and an update says "Auto mode is sending your enquiry to {company} to {address}."
+- **Email.** Subject "Enquiry about opportunities at {company} – {name}" (without the name when unknown). Body: the cover note with the full signature, then "If you'd rather I didn't contact you again, just reply and I won't." Attachment "{name} - CV.pdf" (or "CV.pdf"). Adverts go first within the daily limit.
+- **Follow-up.** One follow-up, in the same thread: "Kia ora," then "I'm following up on my earlier email about opportunities at {company}, sent on {date}", your signature and the same stop line. Then the job closes with "Closed: no reply after one follow-up". It never makes a call.
+- **Reply** blocks the employer (`replied`). **Bounce** closes the enquiry and blocks the employer (`bounced`). **Cancelling** a queued enquiry closes it ("Closed: you cancelled the enquiry").
+- **Changing areas** (saving changed areas on the profile) closes found and shortlisted applications whose place is outside the new areas, with the note "Outside your areas". Empty areas close nothing.
+
+## Evening summary rules
+
+Code: `services/notify_service.py` (`daily_summary`, `send_daily_summaries`), `workers/scheduler.py` (`run_daily_summaries`).
+
+- A job runs at 18:00 New Zealand time, with no catch-up.
+- For each profile with activity that New Zealand day, one notification `daily_summary` is queued (once per profile per day). The text is "Today: " followed by the items below, joined with ", ", and ending with a full stop. Items with a count of zero are left out:
+  - "1 application sent" or "N applications sent" (advert emails sent that day)
+  - "1 follow-up" or "N follow-ups"
+  - "1 reply" or "N replies"
+  - "1 bounced email" or "N bounced emails"
+  - "1 Google Maps employer emailed" or "N Google Maps employers emailed" (enquiries sent that day)
+  - "1 job to apply for on its site" or "N jobs to apply for on their sites" (apply-on-the-site notices)
+- A quiet day queues nothing. Nothing is queued unless WhatsApp is set up. The text never includes an employer's email address or phone number.
 
 ## WhatsApp Web link
 
@@ -243,7 +291,7 @@ Code: `services/master_cv_service.py`, `api/master_cv.py`, `repositories/resumes
 - Cached sections are used first (source `resume`).
 - With no cached sections, the AI section reader runs when a Claude key is set and the resume has text (source `ai`). The result is cached.
 - Otherwise (source `empty`) the form's Key skills are the resume profile's skills. This is display only: nothing is saved until Save CV.
-- A saved CV with no roles is a skeleton, not the CV. Tailoring and the prep pack do not use it: they use the uploaded text, and the plain cover note. Saving such a form, or "I have this" with no AI, never writes sections.
+- A saved CV with no roles is a skeleton, not the CV. Tailoring and the prep pack do not use it: they use the uploaded text, and the plain cover note. Saving such a form does write its sections, and tailoring and the prep pack still ignore them. "I have this" with no AI never writes sections.
 - Contact defaults to the stored contact, or to details read from the resume text (name, email, phone, LinkedIn).
 
 **Saving and the resume profile**
@@ -353,7 +401,7 @@ Matching is whole word or phrase, ignoring case, with an optional plural (see `c
 - **Have:** stores the decision with `skill_decisions.added` set to true only when this answer added the skill to the resume profile or the master CV. The skill is added to the resume profile's skills (unless already listed) and to the master CV's Key skills (when the CV has content, and unless already listed). A blank master CV is not written to. Repeating "have" keeps the `added` flag as it was.
 - **No:** stores the decision. If the previous decision was "have" and `added` is true, the skill is removed from the resume profile's skills and from the master CV's Key skills. Tools are not removed. A skill the user already had stays.
 - **Undo (null):** deletes the decision. If the previous decision was "have" and `added` is true, the skill is removed as above.
-- Migration 0009 adds `added` with `alter table skill_decisions add column if not exists added boolean not null default false`. A database that recorded 0009 before this column existed needs that statement run once. Until then, undo does not remove a skill.
+- Migration 0010 (`supabase/migrations/0010_skill_decisions_added.sql`) adds `added` with `alter table skill_decisions add column if not exists added boolean not null default false`. A database that recorded 0010 before this column existed needs that statement run once. Until then, undo does not remove a skill.
 - Decisions do not change the match score. They change coverage and what tailoring may say.
 - In the UI, **I have this** and **Not me** appear only for `missing` skills, and **Undo** only for `added` and `declined` skills.
 
@@ -394,13 +442,13 @@ Code: `services/outbox_service.py` (`signature`, `sign_cover_note`, `follow_up_b
 Code: `workers/outbox_job.py` (`_schedule_follow_ups`), `services/outbox_service.py` (`send_draft`, `cancel`), `repositories/outbox_repo.py`. Routes: `GET/PUT /settings/follow-ups`, `POST /outbox/{id}/send`.
 
 - **Setting:** `settings.ai.follow_ups.mode`, `auto` (the default) or `ask`. It is read each time a follow-up is due, so a change applies from then on. It does not change rows already queued or waiting.
-- **When a follow-up is due:** an emailed application (`apply_method = email`, status `sent` or `followed_up`) whose `next_follow_up` date has come, and which has fewer than two follow-ups, gets one follow-up. If one is already queued, waiting or failed, nothing else is added.
+- **When a follow-up is due:** an emailed application (`apply_method = email`, status `sent` or `followed_up`) whose `next_follow_up` date has come, and which has fewer follow-ups than its limit (two for an advert, one for an enquiry), gets one follow-up. If one is already queued, waiting or failed, nothing else is added.
 - **Auto:** a `queued` follow-up row is made, threaded on the first email. It goes out on the next run, within the daily limit and only when sending is on.
 - **Ask:** a `draft` row is made instead, with the same text. The job's `next_follow_up` is cleared, so no second draft is made. A "Follow up today" notification is sent.
   - **Send** (`POST /outbox/{id}/send`) changes the draft to `queued`, due now. It goes out on the next run, within the daily limit. Once sent, the job is `followed_up`, the count goes up by one and the next date is 5 working days later.
   - **Skip** (cancel) sets the draft to `cancelled` and clears the follow-up date for that job. No more follow-ups are made for it, and the job stays open (it is not closed automatically, because the closing check needs a follow-up date).
   - A draft that is neither sent nor skipped stays `draft` and waits indefinitely. Nothing is sent, and the job's follow-up date stays cleared, so it is never closed automatically either.
-- **Closing after two follow-ups:** when a job has two follow-ups and its next date comes, it is closed (or sent to an AI call when calls are on), in both modes. In ask mode this only happens after the second follow-up has been sent.
+- **Closing after two follow-ups:** when a job has two follow-ups and its next date comes, it is closed (or sent to an AI call when calls are on), in both modes. An enquiry is closed after its one follow-up, with no call, in both modes. In ask mode this only happens after the second follow-up has been sent.
 - **Cancelling:** "They replied", "Close" and "Stop follow-ups" cancel queued, failed and draft follow-ups for the job. Cancelling a draft directly does the same as Skip.
 - **Outbox page:** the drafts appear under **Follow-ups waiting for you**, with **Send** (queues it now) and **Skip** (stops follow-ups for this job).
 - Manual applications (**I applied on the job site**) get the "Follow up today" notification on their date, as before, and are not affected by the mode.

@@ -31,6 +31,15 @@ RATING = re.compile(r"(\d{1,2}(?:\.\d)?) \((\d+)\)")
 NO_WEBSITE = "No website to read."
 NOT_SET_UP = "Website reading is not set up."
 RECRUITER_FAILED = "Could not check for a hiring contact."
+# What an employer's page says when it does not want unsolicited applications. Lowercase.
+NO_UNSOLICITED_FIELD = "no_unsolicited"
+NO_UNSOLICITED_PHRASES = (
+    "no unsolicited",
+    "do not accept unsolicited",
+    "not accept unsolicited",
+    "no recruitment agencies",
+    "no cold calls",
+)
 
 
 @dataclass
@@ -84,7 +93,7 @@ def _transient(reason: str) -> bool:
     return bool(_TRANSIENT.fullmatch(reason))
 
 
-def _web_address(website: str) -> str:
+def web_address(website: str) -> str:
     """Job sources often give a bare host such as www.example.co.nz. Only those get https://."""
     try:
         has_scheme = bool(urlsplit(website).scheme)
@@ -222,31 +231,49 @@ def lookup(
     if not website:
         notes.append(NO_WEBSITE)
     else:
-        website = _web_address(website)
+        website = web_address(website)
         if not (safe_url(website) and is_allowed_url(website)):
             notes.append("Could not read the website (address not allowed).")
         else:
+            # Every read and AI check happens before the first write, so no row lock is held
+            # while the employer's site or the AI is waiting.
             site = _read_site(tools.reader, website, notes)
             transient = site.transient
+            finished, people = _check_recruiters(tools, site.pages, company["name"], notes)
+            contacts_repo.set_attempted(conn, company_id, now)
             if site.pages:
-                _store_site(conn, company_id, company["name"], site, tools, now, notes)
+                companies_repo.clear_unreadable(conn, company_id)
+                _store_site(conn, company_id, site, finished, people, now)
+            elif not site.transient:
+                # Nothing was read, so the check must not look like a successful one.
+                note = notes[-1] if notes else "Could not read the website."
+                companies_repo.set_unreadable(conn, company_id, note, website, now)
     # A transient failure leaves the site due, so the next automatic lookup reads it again.
     if not transient:
         contacts_repo.set_checked(conn, company_id, now)
     return view(conn, company_id).model_copy(update={"notes": notes})
 
 
+def _unsolicited(pages: list[_Page]) -> tuple[str, str] | None:
+    """The first phrase that says no unsolicited applications, with the page it is on."""
+    for page in pages:
+        text = " ".join(page.text.split()).casefold()
+        for phrase in NO_UNSOLICITED_PHRASES:
+            if phrase in text:
+                return phrase, page.url
+    return None
+
+
 def _store_site(
     conn: psycopg.Connection,
     company_id: UUID,
-    name: str,
     site: _Site,
-    tools: ContactTools,
+    finished: bool,
+    people: list[dict[str, Any]],
     now: datetime,
-    notes: list[str],
 ) -> None:
+    """Write what the site and the AI checks found. Reads were all done before this."""
     pages = site.pages
-    finished, people = _check_recruiters(tools, pages, name, notes)
     recruiter_emails = {person["email"] for person in people if person["email"]}
     general = [
         email for page in pages for email in page.found.emails
@@ -259,6 +286,11 @@ def _store_site(
         # Newest first, and in page order within this lookup.
         companies_repo.upsert_website_fact(
             conn, company_id, field, value, url, now - timedelta(microseconds=position)
+        )
+    unsolicited = _unsolicited(pages)
+    if unsolicited:
+        companies_repo.upsert_website_fact(
+            conn, company_id, NO_UNSOLICITED_FIELD, unsolicited[0], unsolicited[1], now
         )
     linkedin = _linkedin(pages)
     if linkedin:

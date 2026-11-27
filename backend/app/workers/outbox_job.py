@@ -15,13 +15,14 @@ from app.providers.channels.smtp_sender import SmtpSender
 from app.providers.channels.whatsapp_service import WhatsAppService
 from app.providers.jobs.gmail_alerts import ImapMailReader
 from app.providers.voice.omnidim import OmniDimClient
-from app.repositories import calls_repo, events_repo, outbox_repo
-from app.services import auto_service, calls_service, notify_service, outbox_service
+from app.repositories import calls_repo, events_repo, outbox_repo, outreach_repo
+from app.services import auto_service, calls_service, notify_service, outbox_service, source_service
+from app.services.contact_service import ContactTools
 from app.services.outbox_service import (
     FOLLOW_UP_WORKING_DAYS,
     MAX_ATTEMPTS,
-    MAX_FOLLOW_UPS,
     RETRY_AFTER,
+    max_follow_ups,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,11 +61,17 @@ def _check_bounces(conn: psycopg.Connection, mail: ReplyReader, settings: Settin
         outbox_repo.cancel_pending_follow_ups(conn, row["id"])
         calls_repo.cancel_queued(conn, row["id"], "Cancelled: the email bounced.")
         outbox_repo.mark_bounced(conn, row["outbox_id"], row["id"], error)
+        if row["kind"] == "speculative":
+            # Nothing else is sent to this employer: the enquiry is closed, not re-queued.
+            outbox_repo.set_outcome(conn, row["id"], "closed")
+            outreach_repo.block(conn, row["profile_id"], row["company_id"], "bounced")
+            message = f"Your enquiry to {row['company']} bounced, so it was not sent again."
+        else:
+            message = (f"Your email about {row['title']} at {row['company']} bounced. "
+                       "Choose another address in the Outbox.")
         events_repo.add(conn, "note", application_id=row["id"], payload={"text": error})
         notify_service.notify(
-            conn, settings, row["profile_id"], "bounced",
-            f"Your email about {row['title']} at {row['company']} bounced. "
-            "Choose another address in the Outbox.",
+            conn, settings, row["profile_id"], "bounced", message,
             f"bounced:{row['outbox_id']}",
         )
         conn.commit()
@@ -99,8 +106,12 @@ def _check_replies(conn: psycopg.Connection, mail: ReplyReader, settings: Settin
         calls_repo.cancel_queued(conn, row["id"], outbox_service.CANCELLED_BY["replied"])
         events_repo.add(conn, "replied", application_id=row["id"],
                         payload={"from": row["to_address"]})
-        notify_service.notify(conn, settings, row["profile_id"], "replied",
-                              f"{row['company']} replied about {row['title']}.",
+        if row["kind"] == "speculative":
+            outreach_repo.block(conn, row["profile_id"], row["company_id"], "replied")
+            message = f"Reply received: your enquiry to {row['company']}."
+        else:
+            message = f"{row['company']} replied about {row['title']}."
+        notify_service.notify(conn, settings, row["profile_id"], "replied", message,
                               f"replied:{row['id']}")
         conn.commit()
         replies += 1
@@ -119,14 +130,22 @@ def _schedule_follow_ups(
         )
         conn.commit()
     for row in outbox_repo.follow_ups_due(conn, nz_today(now)):
-        if row["follow_ups"] >= MAX_FOLLOW_UPS:
-            if calls_service.queue_after_follow_ups(conn, settings, row["id"],
-                                                    row["profile_id"], now):
+        if row["kind"] == "speculative" and not auto_service.prospects_on(conn, row["profile_id"]):
+            outbox_service.stop_speculative_outreach(conn, row["profile_id"])
+            conn.commit()
+            continue
+        if row["follow_ups"] >= max_follow_ups(row["kind"]):
+            # A speculative enquiry never queues a call: it closes after its one follow-up.
+            speculative = row["kind"] == "speculative"
+            if not speculative and calls_service.queue_after_follow_ups(
+                conn, settings, row["id"], row["profile_id"], now
+            ):
                 conn.commit()
                 continue
             outbox_repo.set_outcome(conn, row["id"], "closed")
-            events_repo.add(conn, "note", application_id=row["id"],
-                            payload={"text": "Closed: no reply after two follow-ups"})
+            events_repo.add(conn, "note", application_id=row["id"], payload={"text": (
+                "Closed: no reply after one follow-up" if speculative
+                else "Closed: no reply after two follow-ups")})
             conn.commit()
             closed += 1
             continue
@@ -137,15 +156,19 @@ def _schedule_follow_ups(
             continue
         contact = outbox_service.contact_details(conn, row["profile_id"])
         asking = outbox_service.follow_up_settings(conn, row["profile_id"]).mode == "ask"
+        sent_on = nz_today(first["sent_at"])
+        if row["kind"] == "speculative":
+            body = outbox_service.speculative_follow_up_body(row["company"], sent_on, contact)
+        else:
+            body = outbox_service.follow_up_body(row["title"], sent_on, contact,
+                                                 row["follow_ups"] + 1)
         outbox_repo.queue(
             conn,
             application_id=row["id"],
             kind="follow_up",
             to=first["to_address"],
             subject=f"Re: {first['subject']}",
-            body=outbox_service.follow_up_body(
-                row["title"], nz_today(first["sent_at"]), contact, row["follow_ups"] + 1
-            ),
+            body=body,
             attachment_path=None,
             attachment_name=None,
             reply_to_message_id=first["message_id"],
@@ -179,6 +202,13 @@ def _send_due(
         if row is None:
             break
         outbox_id = str(row["id"])
+        if row["application_kind"] == "speculative" and not auto_service.prospects_on(
+            conn, row["profile_id"]
+        ):
+            outbox_service.stop_speculative_outreach(conn, row["profile_id"])
+            conn.commit()
+            skip.append(outbox_id)  # cancelled above; never sent
+            continue
         limit = outbox_repo.daily_limit(conn, row["profile_id"])
         if outbox_repo.sent_since(conn, row["profile_id"], nz_day_start(now)) >= limit:
             skip.append(outbox_id)
@@ -233,6 +263,7 @@ def process_outbox(
     now: datetime | None = None,
     omni: calls_service.Dialler | None = None,
     whatsapp: notify_service.WhatsApp | None = None,
+    contact_tools: ContactTools | None = None,
 ) -> dict[str, int]:
     """One pass over the outbox. Never raises."""
     now = now or datetime.now(UTC)
@@ -264,7 +295,11 @@ def process_outbox(
                         )
                         if notify_service.configured(settings) else None
                     )
-                    _run(conn, settings, sender, mail, now, password, report, omni, whatsapp)
+                    tools = contact_tools
+                    if tools is None and auto_service.enabled(conn):
+                        tools = source_service.build_contact_tools(settings, http)
+                    _run(conn, settings, sender, mail, now, password, report, omni, whatsapp,
+                         tools)
             finally:
                 conn.execute("select pg_advisory_unlock(%s)", (LOCK_KEY,))
                 conn.commit()
@@ -283,10 +318,11 @@ def _run(
     report: dict[str, int],
     omni: calls_service.Dialler | None,
     whatsapp: notify_service.WhatsApp | None,
+    contact_tools: ContactTools | None = None,
 ) -> None:
     """Auto mode first, then replies (so nobody who answered gets a follow-up), follow-ups,
     sending, calls and WhatsApp updates."""
-    report.update(auto_service.run(conn, settings, now))
+    report.update(auto_service.run(conn, settings, now, contact_tools))
     if outbox_service.reading_configured(settings):
         reader = mail or ImapMailReader(
             settings.email_address, password, host=settings.email_imap_host

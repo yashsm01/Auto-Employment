@@ -69,3 +69,4 @@ class ProfileView(ProfileUpdate):
     connections: dict[str, bool]
     contact: ContactDetails = ContactDetails()
     warning: str | None = None
+    closed_outside_areas: int = 0

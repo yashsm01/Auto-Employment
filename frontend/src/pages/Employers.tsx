@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 
-import type { NearbyEmployer } from "../api/employers";
+import type { NearbyEmployer, SavedEmployer } from "../api/employers";
 import EmployerContacts, { OpeningHours, RatingLine, webUrl } from "../components/EmployerContacts";
 import { ErrorNotice } from "../components/Notice";
 import {
@@ -12,6 +12,31 @@ import {
 } from "../hooks/useEmployers";
 
 const checkedFormat = new Intl.DateTimeFormat("en-NZ", { dateStyle: "medium", timeStyle: "short" });
+const nzDay = new Intl.DateTimeFormat("en-NZ", {
+  day: "numeric",
+  month: "numeric",
+  year: "numeric",
+  timeZone: "Pacific/Auckland",
+});
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** A New Zealand date such as "26 Nov 2026", with no leading zero on the day. */
+function emailedDate(value: string): string {
+  const parts = Object.fromEntries(nzDay.formatToParts(new Date(value)).map((p) => [p.type, p.value]));
+  return `${Number(parts.day)} ${MONTHS[Number(parts.month) - 1]} ${parts.year}`;
+}
+
+function outreachText(employer: SavedEmployer): { text: string; tone: string } | null {
+  if (employer.outreach_status === "emailed") {
+    return {
+      text: employer.outreach_at ? `Emailed ${emailedDate(employer.outreach_at)}` : "Emailed",
+      tone: "text-muted",
+    };
+  }
+  if (employer.outreach_status === "replied") return { text: "Replied", tone: "text-ok" };
+  if (employer.outreach_status === "blocked") return { text: "Do not contact", tone: "text-bad" };
+  return null;
+}
 
 function ResultCard({
   place,
@@ -194,6 +219,7 @@ export default function Employers() {
         {savedList.data?.items.map((employer) => {
           const website = webUrl(employer.website);
           const mapUrl = webUrl(employer.map_url);
+          const outreach = outreachText(employer);
           return (
           <div
             key={employer.id}
@@ -207,6 +233,9 @@ export default function Employers() {
                   : "Website not checked yet"}
                 {employer.address ? ` · ${employer.address}` : ""}
               </span>
+              {outreach && (
+                <span className={`font-semibold ${outreach.tone}`}>{outreach.text}</span>
+              )}
               <div className="flex flex-wrap gap-4 font-semibold">
                 {mapUrl && (
                   <a className="text-brand-dark" href={mapUrl} target="_blank" rel="noopener noreferrer">

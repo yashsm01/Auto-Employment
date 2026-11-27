@@ -490,6 +490,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/outbox/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Outbox Contacts */
+        get: operations["get_outbox_contacts_outbox_contacts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_id}/find-contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Find Contacts */
+        post: operations["find_contacts_applications__application_id__find_contacts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/settings/phase4": {
         parameters: {
             query?: never;
@@ -706,6 +740,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdvertContact */
+        AdvertContact: {
+            /** Name */
+            name: string | null;
+            /** Role */
+            role: string | null;
+            /** Email */
+            email: string | null;
+            /** Phone */
+            phone: string | null;
+        };
         /** ApplicationDetail */
         ApplicationDetail: {
             /**
@@ -790,6 +835,18 @@ export interface components {
              * @default 5
              */
             daily_limit: number;
+            /**
+             * Prospects Enabled
+             * @default false
+             */
+            prospects_enabled: boolean;
+            /**
+             * Prospects Per Day
+             * @default 5
+             */
+            prospects_per_day: number;
+            /** Business Types */
+            business_types?: string[];
         };
         /** AutoModeView */
         AutoModeView: {
@@ -808,12 +865,26 @@ export interface components {
              * @default 5
              */
             daily_limit: number;
+            /**
+             * Prospects Enabled
+             * @default false
+             */
+            prospects_enabled: boolean;
+            /**
+             * Prospects Per Day
+             * @default 5
+             */
+            prospects_per_day: number;
+            /** Business Types */
+            business_types?: string[];
             /** Approved Today */
             approved_today: number;
             /** Sending Enabled */
             sending_enabled: boolean;
             /** Calls Enabled */
             calls_enabled: boolean;
+            /** Business Types Suggested */
+            business_types_suggested?: string[];
         };
         /**
          * BaseSections
@@ -966,6 +1037,40 @@ export interface components {
             whatsapp?: string | null;
             /** Work Rights */
             work_rights?: string | null;
+        };
+        /** ContactRow */
+        ContactRow: {
+            /**
+             * Application Id
+             * Format: uuid
+             */
+            application_id: string;
+            /** Title */
+            title: string;
+            /** Company */
+            company: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "advert" | "speculative";
+            /** Status */
+            status: string;
+            /** Hiring Emails */
+            hiring_emails?: string[];
+            /** Emails */
+            emails?: string[];
+            advert_contact?: components["schemas"]["AdvertContact"] | null;
+            /** Phone */
+            phone?: string | null;
+            /** Phone Source */
+            phone_source?: string | null;
+            /** Address Used */
+            address_used?: string | null;
+            /** Missing Reason */
+            missing_reason?: string | null;
+            /** Checked At */
+            checked_at?: string | null;
         };
         /** CoverNoteUpdate */
         CoverNoteUpdate: {
@@ -1226,6 +1331,11 @@ export interface components {
             /** Town */
             town: string;
         };
+        /** OutboxContacts */
+        OutboxContacts: {
+            /** Rows */
+            rows: components["schemas"]["ContactRow"][];
+        };
         /** OutboxItem */
         OutboxItem: {
             /**
@@ -1247,6 +1357,12 @@ export interface components {
              * @enum {string}
              */
             kind: "application" | "follow_up" | "after_call";
+            /**
+             * Application Kind
+             * @default advert
+             * @enum {string}
+             */
+            application_kind: "advert" | "speculative";
             /** To */
             to: string;
             /** Subject */
@@ -1446,6 +1562,11 @@ export interface components {
             };
             /** Warning */
             warning?: string | null;
+            /**
+             * Closed Outside Areas
+             * @default 0
+             */
+            closed_outside_areas: number;
         };
         /** Recruiter */
         Recruiter: {
@@ -1569,6 +1690,10 @@ export interface components {
             /** Last Checked */
             last_checked: string | null;
             contacts?: components["schemas"]["EmployerContacts"] | null;
+            /** Outreach Status */
+            outreach_status?: ("emailed" | "replied" | "blocked") | null;
+            /** Outreach At */
+            outreach_at?: string | null;
         };
         /** SavedEmployers */
         SavedEmployers: {
@@ -1787,6 +1912,12 @@ export interface components {
             title: string;
             /** Company */
             company: string;
+            /**
+             * Application Kind
+             * @default advert
+             * @enum {string}
+             */
+            application_kind: "advert" | "speculative";
             /** Suggested To */
             suggested_to?: string | null;
             /** Job Url */
@@ -1828,6 +1959,12 @@ export interface components {
              * @enum {string}
              */
             apply_method: "email" | "manual";
+            /**
+             * Application Kind
+             * @default advert
+             * @enum {string}
+             */
+            application_kind: "advert" | "speculative";
             /** To */
             to?: string | null;
             /** Applied At */
@@ -2887,6 +3024,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OutboxView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_outbox_contacts_outbox_contacts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxContacts"];
+                };
+            };
+        };
+    };
+    find_contacts_applications__application_id__find_contacts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                application_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactRow"];
                 };
             };
             /** @description Validation Error */

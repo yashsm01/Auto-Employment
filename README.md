@@ -49,7 +49,7 @@ Everything below is optional. Add keys to `backend/.env`, then restart the backe
 
 Each search lists where it looked on the Pipeline page, and every job shows its source.
 
-With a Maps key, each search finds up to 60 employers for your job titles and towns (3 Maps searches) and checks 8 saved employers' websites for open jobs. Change this with `MAX_DISCOVERY_SEARCHES_PER_RUN`, `MAX_EMPLOYER_SITES_PER_RUN` and `MAX_NEARBY_SEARCHES_PER_DAY` in `.env`. Many small employers have no careers page, so expect a few jobs per search from this source.
+With a Maps key, each search finds up to 60 employers for your job titles and towns (3 Maps searches) and checks 8 saved employers' websites for open jobs. If you set business types under **Settings › Auto mode › Google Maps employers**, the searches use "{business type} in {town}" instead of your job titles, and the next run picks up where this one stopped. The business types are used even with Auto mode off. Change this with `MAX_DISCOVERY_SEARCHES_PER_RUN`, `MAX_EMPLOYER_SITES_PER_RUN` and `MAX_NEARBY_SEARCHES_PER_DAY` in `.env`. Many small employers have no careers page, so expect a few jobs per search from this source.
 
 To connect Gmail, turn on 2-Step Verification for your Google account, create an app password at https://myaccount.google.com/apppasswords, then set these in `.env`:
 
@@ -138,7 +138,7 @@ After updating the code, run `.venv\Scripts\python -m app.db.migrate` once in `b
 
 On the **Resume review** page, **Skill coverage for this job** lists the skills the ad asks for and where your CV shows them. The **Shortlist** shows a shorter count for each job. If the AI cannot read your CV sections at that moment, the Shortlist still loads and counts, using your profile's skills.
 
-- When the AI scores a job, it also reads the ad's **required** and **nice to have** skills. Only skills the ad names are kept. Jobs scored before this update, and jobs whose scoring found no required or nice-to-have skills, show the skills the earlier scoring listed as matched or missing, as one group. Those were not checked against the ad. Without an AI key, the keyword scorer lists the skills it finds under **Skills the ad mentions**.
+- When the AI scores a job, it also reads the ad's **required** and **nice to have** skills. Only skills the ad names are kept. Jobs scored before this update, and jobs whose scoring found no required or nice-to-have skills and whose skills were not split into required and nice to have, show the skills the earlier scoring listed as matched or missing, as one group. Those were not checked against the ad. Without an AI key, the keyword scorer lists the skills it finds under **Skills the ad mentions**.
 - The two groups are counted separately, for example "3 of 4" required.
 - Each skill shows where your CV mentions it, looking in this order: a role (title, then bullets), your profile, key skills, then education.
 - Synonyms count. The app knows pairs such as AWS and Amazon Web Services, Postgres and PostgreSQL, K8s and Kubernetes, and JS and JavaScript. When a synonym matched, the panel says "Matched as AWS". Matching ignores capitals and allows a plural. Skills of two letters or fewer, such as Go, match only in the capitals you typed, so "Go" does not match "we go live".
@@ -205,7 +205,7 @@ After updating the code, run `.venv\Scripts\python -m app.db.migrate` once in `b
 
 After you approve a tailored resume on **Resume review**, it waits under **Ready to apply** on **Outbox and follow-ups**.
 
-- **Queue email** sends the cover note with the tailored PDF attached, from your own Gmail. The address box is filled in when the advert gives one ("send your CV to …") or the employer's contact details have one (see [Employer contact details](#employer-contact-details)), and you can change it.
+- **Queue email** sends the cover note with the tailored PDF attached, from your own Gmail. The address box is filled in when the advert gives one ("send your CV to …") or the employer's contact details have one (see [Employer contact details](#employer-contact-details)), and you can change it. It refuses an advert that asks you to apply on the job site ("This advert asks you to apply on the job site.").
 - **I applied on the job site** is for SEEK, LinkedIn and other jobs you apply for on the site. The app tracks the job and reminds you to follow up.
 
 The rules:
@@ -242,6 +242,8 @@ For each employer you save, the app shows its contact details: phone, email, web
 
 **When lookups run**
 - When you save an employer, in the background.
+- When you approve a job, in the background.
+- In Auto mode, when an approved advert gives no address (see Auto mode below).
 - During the daily search, for employers of shortlisted jobs that have not been researched yet. At most 10 a run (`MAX_EMPLOYER_PROFILES_PER_RUN`).
 - When you press **Get contact details**. This reads the website again, even if it was checked recently.
 - Automatic lookups skip an employer checked in the last 30 days. If its website could not be read because of a timeout, a dropped connection, rate limiting or a server error, the lookup does not count as checked and the next automatic lookup reads it again. If the site refused access (for example a 403), the lookup still counts as checked, so use **Get contact details** to try again sooner.
@@ -254,6 +256,15 @@ For each employer you save, the app shows its contact details: phone, email, web
 - A named person is kept only when the page shows their name, a hiring job title and a short quote (25 words or fewer) that appears on the page. Their email or phone is shown only when the page gives it.
 
 **The Outbox address.** When an application has no address in its advert, the Outbox suggests the first of these it finds: a hiring address from the employer's site, the email of a named hiring contact, then the general email.
+
+**Outbox contacts list.** Under **Contacts** on the Outbox, each approved or sent application shows the employer's address when the app has found one. When it has none, the list shows why:
+- "Advert asks you to apply on the job site"
+- "No website known"
+- "Website not checked yet"
+- "Could not read the website"
+- "Checked {d Mon yyyy}: no email on the site", for example "Checked 3 Nov 2026: no email on the site"
+
+**Find contacts** reads the employer's website again at once. On the Employers page, a saved employer shows "Emailed {date}", "Replied" or "Do not contact" when it is blocked from enquiries.
 
 ## AI phone calls and WhatsApp updates (Phase 4)
 
@@ -293,6 +304,8 @@ You get an update for:
 - follow-ups due
 - finished calls
 - emails that failed to send or bounced
+- Auto mode emails sent, and jobs it could not email because the advert or employer gives no address
+- the evening summary, at 18:00 (see Auto mode)
 
 To set it up:
 
@@ -330,15 +343,37 @@ Auto mode acts for you, so it's off until you switch it on under **Auto mode** o
 
 1. approves shortlisted jobs that score at least your **Minimum score** (default 80), up to **Jobs a day** (default 5), best first. This starts tailoring, and deep search if that's on.
 2. approves the tailored resume, but only for jobs auto mode approved itself, never for jobs you approved by hand.
-3. queues the application email when the advert or the employer's public record gives an address. Jobs without an address wait in the Outbox under "Ready to apply", and you get a WhatsApp update.
+3. queues the application email when the advert or the employer's public record gives an address. Auto mode looks up the employer's website first when the advert gives none (see below). Adverts that say to apply on the job site only are never queued by auto mode. Jobs still without an address stay in the Outbox under "Ready to apply", and you get a WhatsApp update.
 
 Everything after that follows the normal rules:
 - emails still need `EMAIL_SEND_ENABLED=true` and stay within the daily send limit
 - follow-ups, reply checks and AI calls work as usual
 
-Auto mode needs your own uploaded resume, and it ignores example jobs. Switching it off stops new approvals, but emails already queued still go out; cancel them on the Outbox. Each auto-approved job says "Approved by auto mode" in its Contact history. Without a Claude key, it sends your resume as it is with a short standard cover note.
+**Waiting for contact details.** As soon as auto mode approves a job, it looks up the employer's website. If the advert gives no address, auto mode waits for that lookup for up to 24 hours after the approval. A website that could not be read is tried again at most once an hour. After 24 hours, or straight away when the employer has no website or its site was already checked, the job waits under "Ready to apply" and you are told to apply on the job site.
 
-After updating the code, run `.venv\Scripts\python -m app.db.migrate` once in `backend`.
+**Adverts to apply for on the job site.** An advert that says to apply on the job site only, for example "apply online only", "please do not contact" or a jobs.govt.nz link, is never emailed by auto mode. You get a WhatsApp update to apply on the site yourself. **Queue email** on the Outbox refuses them too.
+
+**Changing your areas** closes the jobs you have found or shortlisted that are outside the new areas. Each one shows the note "Outside your areas".
+
+**Google Maps employers.** Under **Settings › Auto mode › Google Maps employers**, switch on **Email Google Maps employers automatically**. It needs Auto mode on. After each daily search, the app emails up to **New employers a day** (1 to 10, default 5) of the employers it saved from Google Maps that have no advert with you:
+- Only employers in your areas that have an address. The app looks up their website, and emails only when it publishes an email address. Employers without one are skipped, and looked at again the next day.
+- Never an employer you have applied to, one that has replied or bounced, or one whose site says it takes no unsolicited applications (for example "no unsolicited applications", "no cold calls" or "no recruitment agencies").
+- Each email is an enquiry, with the subject "Enquiry about opportunities at {company} – {your name}", your cover note with your signature, your master CV attached, and the line "If you'd rather I didn't contact you again, just reply and I won't." An enquiry gets one follow-up and then closes. It never leads to a phone call.
+- A reply or a bounce stops enquiries to that employer. Cancelling a queued enquiry closes it.
+- Switching **Email Google Maps employers automatically** off, or Auto mode off, stops enquiries at once: enquiries not sent yet are cancelled, approved ones that were never sent are closed, and sent ones get no follow-up. Replies and bounces are still noticed.
+- Adverts are sent before enquiries, within the daily send limit.
+- Your master CV needs at least one role. Without one, nothing is sent and the app says: "Add your work history in the Resume builder to start Google Maps outreach."
+
+**Evening summary.** At 18:00 New Zealand time the app sends one WhatsApp line about the day, for example "Today: 1 application sent, 1 reply, 2 Google Maps employers emailed." It is sent only on days with activity, and only when WhatsApp is set up. It never includes an employer's email address or phone number.
+
+**Still needs you:**
+- **Adverts that ask you to apply on the job site.** Neither auto mode nor **Queue email** emails them. Apply on the site, then press **I applied on the job site** on the Outbox.
+- **Jobs whose employer publishes no email.** They wait under "Ready to apply". The **Contacts** list on the Outbox gives the reason. Add an address, or apply another way.
+- **Running the migrations** (below) and restarting the backend before using these features.
+
+Auto mode needs your own uploaded resume, and it ignores example jobs. Switching it off stops new approvals, but emails already queued for adverts still go out; cancel them on the Outbox. Google Maps enquiries stop at once (see Google Maps employers above). The daily search and Google Maps outreach run for the first profile only. Each auto-approved job says "Approved by auto mode" in its Contact history. Without a Claude key, it sends your resume as it is with a short standard cover note.
+
+After updating the code, stop the backend, run `.venv\Scripts\python -m app.db.migrate` once in `backend`, then start the backend again. This adds migrations `0011_outreach.sql` (Google Maps outreach) and `0012_contacts_attempted.sql` (contact checks). Google Maps outreach and Auto mode's wait for contact details need them.
 
 ## Project docs
 

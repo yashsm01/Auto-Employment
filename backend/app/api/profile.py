@@ -17,9 +17,11 @@ def get_profile(conn: ConnDep, profile_id: ProfileIdDep, settings: SettingsDep) 
 def save_profile(
     body: ProfileUpdate, conn: ConnDep, profile_id: ProfileIdDep, settings: SettingsDep
 ) -> ProfileView:
-    resume_service.update(conn, profile_id, body)
+    closed = resume_service.update(conn, profile_id, body)
     conn.commit()
-    return resume_service.get_view(conn, profile_id, settings)
+    view = resume_service.get_view(conn, profile_id, settings)
+    view.closed_outside_areas = closed
+    return view
 
 
 @router.post("/resume")

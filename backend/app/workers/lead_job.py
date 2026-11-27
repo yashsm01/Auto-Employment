@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 import httpx
 import psycopg
 
-from app.chains.manager import get_chain
+from app.chains.manager import get_chain, get_speculative_chain
 from app.core.config import Settings
 from app.graphs.lead.deps import LeadDeps
 from app.graphs.runner import GraphRunResult, run_graph
@@ -17,9 +17,11 @@ from app.providers.llm.factory import build_embedder
 from app.repositories import profiles_repo
 from app.services import (
     application_service,
+    auto_service,
     employer_service,
     lead_service,
     notify_service,
+    prospect_service,
     source_service,
 )
 from app.services.resume_service import connections
@@ -63,6 +65,7 @@ def run_lead_search(
                     today,
                     settings.max_discovery_searches_per_run,
                     settings.max_nearby_searches_per_day,
+                    business_types=auto_service.get_settings(conn, profile_id).business_types,
                 ),
             )
 
@@ -105,3 +108,18 @@ def run_lead_search(
                     employer_service.mark_checked(conn, profile_id, source.checked, now)
             conn.commit()
         return result
+
+
+def run_prospecting(
+    conn: psycopg.Connection, settings: Settings, profile_id: UUID
+) -> dict[str, int] | None:
+    """Google Maps outreach for the daily run. None unless Auto mode and its switch are on."""
+    auto = auto_service.get_settings(conn, profile_id)
+    if not (auto.enabled and auto.prospects_enabled):
+        return None
+    with httpx.Client(timeout=SOURCE_TIMEOUT_SECONDS) as client:
+        tools = source_service.build_contact_tools(settings, client)
+        chain = get_speculative_chain(settings)
+        return prospect_service.run_daily(
+            conn, settings, profile_id, tools, chain, datetime.now(UTC)
+        )

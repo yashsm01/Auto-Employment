@@ -11,7 +11,8 @@ from app.core.config import Settings
 from app.core.errors import Conflict
 from app.db.client import connect
 from app.repositories import profiles_repo, runs_repo
-from app.workers.lead_job import run_lead_search
+from app.services import notify_service
+from app.workers.lead_job import run_lead_search, run_prospecting
 from app.workers.outbox_job import process_outbox
 from app.workers.prep_job import process_prep_queue
 from app.workers.tailor_job import process_tailoring_queue
@@ -43,10 +44,31 @@ def run_scheduled_search(settings: Settings) -> None:
                 return
             result = run_lead_search(conn, settings, profile_id)
             logger.info("Scheduled search finished: %s", result.status)
+            _run_prospecting(conn, settings, profile_id)
     except Conflict:
         logger.info("Scheduled search skipped: a search is already running")
     except Exception:
         logger.exception("Scheduled search failed")
+
+
+def _run_prospecting(conn, settings: Settings, profile_id) -> None:
+    """Google Maps outreach after the daily search. Its failure never stops the scheduler."""
+    try:
+        report = run_prospecting(conn, settings, profile_id)
+        if report is not None:
+            logger.info("Google Maps outreach finished: %s", report)
+    except Exception:
+        logger.exception("Google Maps outreach failed")
+
+
+def run_daily_summaries(settings: Settings) -> None:
+    """The 18:00 summary. Never raises, because a failed summary must not stop the scheduler."""
+    try:
+        with connect(settings.database_url) as conn:
+            queued = notify_service.send_daily_summaries(conn, settings, datetime.now(UTC))
+            logger.info("Daily summaries queued: %s", queued)
+    except Exception:
+        logger.exception("Daily summary failed")
 
 
 def _catch_up(settings: Settings) -> None:
@@ -74,6 +96,16 @@ def start_scheduler(settings: Settings) -> BackgroundScheduler | None:
         misfire_grace_time=MISFIRE_GRACE_SECONDS,
     )
     scheduler.add_job(_catch_up, "date", args=[settings], id="startup-catch-up")
+    # The end-of-day summary, only when something happened. There is no catch-up for it.
+    scheduler.add_job(
+        run_daily_summaries,
+        CronTrigger(hour=18, minute=0, timezone=NZ_TIME),
+        args=[settings],
+        id="daily-summary",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=MISFIRE_GRACE_SECONDS,
+    )
     # Picks up resumes left waiting, for example after the backend restarts.
     scheduler.add_job(
         process_tailoring_queue,

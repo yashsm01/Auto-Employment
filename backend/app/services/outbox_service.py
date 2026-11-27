@@ -25,13 +25,17 @@ from app.schemas.outbox import (
 )
 from app.schemas.tailoring import ContactDetails
 from app.services import resume_review_service
+from app.services.advert_contact import applies_on_site_only
 from app.services.application_service import safe_url
 
 NOT_VALID = "That is not a valid email address."
+SITE_ONLY = "This advert asks you to apply on the job site."
 MAX_ATTEMPTS = 3
 RETRY_AFTER = timedelta(minutes=15)
 FOLLOW_UP_WORKING_DAYS = 5
-MAX_FOLLOW_UPS = 2
+# Speculative enquiries get one follow-up; adverts get two.
+_MAX_FOLLOW_UPS = {"advert": 2, "speculative": 1}
+STOP_LINE = "If you'd rather I didn't contact you again, just reply and I won't."
 CANCELLED_BY = {
     "replied": "Cancelled: the employer replied.",
     "closed": "Cancelled: you closed the job.",
@@ -114,6 +118,36 @@ def attachment_name(title: str, name: str | None) -> str:
     return f"{_one_line(_FILE_UNSAFE.sub(' ', stem))}.pdf"
 
 
+def max_follow_ups(kind: str) -> int:
+    return _MAX_FOLLOW_UPS.get(kind, _MAX_FOLLOW_UPS["advert"])
+
+
+def speculative_subject(company: str, name: str | None) -> str:
+    company, name = _one_line(company), _one_line(name)
+    stem = f"Enquiry about opportunities at {company}"
+    return f"{stem} – {name}" if name else stem
+
+
+def speculative_attachment_name(name: str | None) -> str:
+    stem = f"{_one_line(name)} - CV" if name else "CV"
+    return f"{_one_line(_FILE_UNSAFE.sub(' ', stem))}.pdf"
+
+
+def speculative_body(cover_note: str, contact: ContactDetails) -> str:
+    """The cover note with the full signature, then the line that stops further emails."""
+    return f"{sign_cover_note(cover_note, contact)}\n\n{STOP_LINE}"
+
+
+def speculative_follow_up_body(company: str, sent_on: date, contact: ContactDetails) -> str:
+    return (
+        "Kia ora,\n\n"
+        f"I'm following up on my earlier email about opportunities at {_one_line(company)}, "
+        f"sent on {sent_on.strftime('%d %B %Y').lstrip('0')}. I'm still interested and would "
+        "welcome the chance to talk. My CV is attached to that email.\n\n"
+        f"{signature(contact)}\n\n{STOP_LINE}"
+    )
+
+
 def follow_up_body(title: str, sent_on: date, contact: ContactDetails, number: int) -> str:
     opening = (
         f"I'm following up on my application for the {title} role, sent on "
@@ -165,6 +199,8 @@ def queue_email(
         raise BadRequest(NOT_VALID)
     with conn.transaction():
         row = _application(conn, profile_id, application_id)
+        if row["kind"] == "advert" and applies_on_site_only(row["description"] or "", row["url"]):
+            raise BadRequest(SITE_ONLY)
         if row["status"] != "approved":
             raise Conflict(f"This job is {row['status']}, so its application can't be sent.")
         if row["apply_method"] is not None:
@@ -175,15 +211,24 @@ def queue_email(
                                              settings.upload_dir)
         resume = resumes_repo.get_tailored(conn, profile_id, row["resume_id"])
         contact = contact_details(conn, profile_id)
+        cover = resume["content"].get("cover_note") or ""
+        if row["kind"] == "speculative":
+            subject = speculative_subject(row["company"], contact.name)
+            body = speculative_body(cover, contact)
+            file_name = speculative_attachment_name(contact.name)
+        else:
+            subject = subject_for(row["title"], contact.name)
+            body = sign_cover_note(cover, contact)
+            file_name = attachment_name(row["title"], contact.name)
         outbox_repo.queue(
             conn,
             application_id=application_id,
             kind="application",
             to=address,
-            subject=subject_for(row["title"], contact.name),
-            body=sign_cover_note(resume["content"].get("cover_note") or "", contact),
+            subject=subject,
+            body=body,
             attachment_path=pdf,
-            attachment_name=attachment_name(row["title"], contact.name),
+            attachment_name=file_name,
             reply_to_message_id=None,
             scheduled_at=now,
         )
@@ -232,7 +277,7 @@ def record_outcome(conn: psycopg.Connection, profile_id: UUID | str,
         count = row["follow_ups"] + 1
         next_date = (
             add_working_days(nz_today(now), FOLLOW_UP_WORKING_DAYS)
-            if count < MAX_FOLLOW_UPS
+            if count < max_follow_ups(row["kind"])
             else None
         )
         outbox_repo.mark_followed_up(conn, application_id, next_date)
@@ -245,10 +290,26 @@ def cancel(conn: psycopg.Connection, profile_id: UUID | str, outbox_id: UUID | s
         row = outbox_repo.get(conn, profile_id, outbox_id)
         if row is None:
             raise NotFound("Email not found")
-        if row["status"] not in ("queued", "failed", "draft"):
+        # Lock the application first, then read the email again: a send that finished in the
+        # meantime must not be overwritten by this cancel.
+        application = outbox_repo.application(conn, profile_id, row["application_id"])
+        row = outbox_repo.get(conn, profile_id, outbox_id)
+        if row is None:
+            raise NotFound("Email not found")
+        not_cancellable = row["status"] not in ("queued", "failed", "draft") or (
+            row["kind"] == "application" and application["status"] != "approved"
+        )
+        if not_cancellable:
             raise Conflict("Only emails that have not been sent can be cancelled.")
         outbox_repo.set_status(conn, outbox_id, "cancelled")
-        if row["kind"] == "application":
+        if row["kind"] == "application" and (
+            outbox_repo.application_kind(conn, row["application_id"]) == "speculative"
+        ):
+            # A cancelled enquiry is closed, so auto mode never re-sends it.
+            outbox_repo.set_outcome(conn, row["application_id"], "closed")
+            events_repo.add(conn, "note", application_id=row["application_id"],
+                            payload={"text": "Closed: you cancelled the enquiry"})
+        elif row["kind"] == "application":
             outbox_repo.set_method(conn, row["application_id"], None)
         else:
             outbox_repo.stop_follow_ups(conn, row["application_id"])
@@ -292,7 +353,8 @@ def save_daily_limit(conn: psycopg.Connection, profile_id: UUID | str, limit: in
 def _item(row: dict[str, Any]) -> OutboxItem:
     return OutboxItem(
         id=row["id"], application_id=row["application_id"], title=row["title"],
-        company=row["company"], kind=row["kind"], to=row["to_address"],
+        company=row["company"], kind=row["kind"],
+        application_kind=row["application_kind"], to=row["to_address"],
         subject=row["subject"] or "", scheduled_at=row["scheduled_at"],
         attempts=row["attempts"], error=row["error"],
     )
@@ -304,6 +366,7 @@ def view(conn: psycopg.Connection, profile_id: UUID | str, settings: Settings,
     to_send = [
         ToSendItem(
             application_id=row["id"], title=row["title"], company=row["company"],
+            application_kind=row["kind"],
             suggested_to=suggested_address(conn, row), job_url=safe_url(row["url"]),
             pdf_url=f"/resumes/{row['resume_id']}/pdf" if row["resume_id"] else None,
             cover_note=row["cover_note"],
@@ -316,7 +379,8 @@ def view(conn: psycopg.Connection, profile_id: UUID | str, settings: Settings,
     waiting = [
         WaitingItem(
             application_id=row["id"], title=row["title"], company=row["company"],
-            apply_method=row["apply_method"] or "manual", to=row["to_address"],
+            apply_method=row["apply_method"] or "manual",
+            application_kind=row["application_kind"], to=row["to_address"],
             applied_at=row["applied_at"], follow_ups=row["follow_ups"],
             next_follow_up=row["next_follow_up"],
             follow_up_due=bool(row["next_follow_up"] and row["next_follow_up"] <= today),
@@ -344,6 +408,23 @@ def view(conn: psycopg.Connection, profile_id: UUID | str, settings: Settings,
             for r in outbox_repo.replied_rows(conn, profile_id)
         ],
     )
+
+
+GOOGLE_MAPS_OFF = "Closed: Google Maps outreach was turned off"
+
+
+def stop_speculative_outreach(conn: psycopg.Connection, profile_id: UUID | str) -> None:
+    """Google Maps outreach is off. Enquiries not sent yet are cancelled, approved ones that were
+    never sent are closed, and sent ones stop their follow-ups. They stay sent, so a reply or a
+    bounce is still seen and still blocks the employer."""
+    outbox_repo.cancel_speculative_pending(conn, profile_id)
+    for application_id in outbox_repo.speculative_ids(conn, profile_id, ["approved"]):
+        outbox_repo.set_outcome(conn, application_id, "closed")
+        events_repo.add(conn, "note", application_id=application_id,
+                        payload={"text": GOOGLE_MAPS_OFF})
+    for application_id in outbox_repo.speculative_ids(conn, profile_id,
+                                                      ["sent", "followed_up"]):
+        outbox_repo.stop_follow_ups(conn, application_id)
 
 
 def sending_configured(settings: Settings) -> bool:

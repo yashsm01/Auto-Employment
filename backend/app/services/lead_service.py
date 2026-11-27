@@ -139,22 +139,36 @@ def dedupe_jobs(jobs: Iterable[JobDraft], seen: Iterable[str] = ()) -> list[JobD
     return kept
 
 
-def _in_regions(job: JobDraft, regions: list[str]) -> bool:
-    # Global company boards list jobs in other countries, some in same-named places.
-    if job.source == "ats" and not is_nz_location(job.location, regions):
-        return False
-    if not regions:  # all of New Zealand
+def place_in_regions(place_text: str, regions: list[str], title: str = "") -> bool:
+    """True if a place (or a remote job's title) matches one of the chosen regions.
+
+    An empty list means all of New Zealand.
+    """
+    if not regions:
         return True
 
-    place = fold_place(f"{job.location} {job.region}")
+    place = fold_place(place_text)
     for region in regions:
         wanted = fold_place(region)
         if wanted.startswith("remote"):
-            if contains_term(f"{place} {fold_place(job.title)}", "remote"):
+            if contains_term(f"{place} {fold_place(title)}", "remote"):
                 return True
         elif contains_term(place, wanted):
             return True
     return False
+
+
+def in_regions(
+    location: str, region: str, title: str, source: str, regions: list[str]
+) -> bool:
+    # Global company boards list jobs in other countries, some in same-named places.
+    if source == "ats" and not is_nz_location(location, regions):
+        return False
+    return place_in_regions(f"{location} {region}", regions, title)
+
+
+def _in_regions(job: JobDraft, regions: list[str]) -> bool:
+    return in_regions(job.location, job.region, job.title, job.source, regions)
 
 
 def _is_wanted(job: JobDraft, prefs: SearchPreferences, now: datetime) -> bool:

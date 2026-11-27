@@ -448,3 +448,41 @@ def test_a_put_is_saved_even_when_the_ats_check_fails(client, conn, monkeypatch)
     assert put.status_code == 200
     assert put.json()["ats"]["items"][0]["ok"] is False
     assert client.get("/master-cv").json()["contact"]["name"] == "Renamed Person"
+
+
+def test_a_fresh_ai_read_without_roles_is_shown_as_read(conn):
+    profile_id = _add_resume(conn, {"text": "Sample Person\nKubernetes and Python skills."})
+    chain = ResumeSectionsChain(ScriptedLLM(SectionsExtraction(skills=["Kubernetes", "Python"])))
+
+    view = master_cv_service.load(conn, profile_id, chain)
+
+    assert view.source == "ai"
+    assert view.sections.skills == ["Kubernetes", "Python"]
+    assert view.sections.roles == []
+
+
+def test_a_cached_read_without_roles_is_shown_as_saved(conn):
+    profile_id = _add_resume(
+        conn,
+        {
+            "text": "Sample Person\nKubernetes and Python skills.",
+            "sections": {"summary": "", "roles": [], "skills": ["Kubernetes"], "education": []},
+        },
+    )
+
+    view = master_cv_service.load(conn, profile_id, None)
+
+    assert view.source == "resume"
+    assert view.sections.skills == ["Kubernetes"]
+
+
+def test_get_master_cv_shows_the_skills_of_a_fresh_read_without_roles(client, conn):
+    _add_resume(conn, {"text": "Sample Person\nKubernetes and Python skills."})
+    client.app.dependency_overrides[get_sections_chain] = lambda: ResumeSectionsChain(
+        ScriptedLLM(SectionsExtraction(skills=["Kubernetes"]))
+    )
+
+    body = client.get("/master-cv").json()
+
+    assert body["source"] == "ai"
+    assert body["sections"]["skills"] == ["Kubernetes"]

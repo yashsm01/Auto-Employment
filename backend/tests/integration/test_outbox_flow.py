@@ -1,5 +1,7 @@
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
+from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,16 +9,29 @@ from fastapi.testclient import TestClient
 from app.chains.manager import get_chain
 from app.core.config import Settings
 from app.core.deps import get_settings
-from app.core.errors import ProviderError
+from app.core.errors import Conflict, ProviderError
 from app.core.workdays import add_working_days, nz_today
 from app.graphs.lead.deps import LeadDeps
 from app.graphs.runner import run_graph
 from app.main import create_app
 from app.providers.jobs.gmail_alerts import EmailMessage
-from app.repositories import companies_repo
+from app.repositories import companies_repo, outbox_repo, outreach_repo
+from app.schemas.auto import AutoModeSettings
+from app.schemas.outbox import FollowUpSettings
+from app.services import auto_service, outbox_service
 from app.workers.outbox_job import process_outbox
 from tests.documents import make_pdf
 from tests.factories import make_job
+from tests.integration.test_prospecting import NOW as SPECULATIVE_DAY
+from tests.integration.test_prospecting import (
+    _employer,
+    _profile,
+    _run,
+    _settings,
+    _switch_on,
+    _tools,
+    _with_email,
+)
 
 pytestmark = pytest.mark.postgres
 
@@ -190,13 +205,22 @@ def test_the_daily_limit_holds_back_extra_emails(client, conn, sending):
     client.post(f"/applications/{first}/send", json={"to": "jobs@example.co.nz"})
     client.post(f"/applications/{second}/send", json={"to": "jobs@example.co.nz"})
     sender = FakeSender()
+    # The next 12:00 in New Zealand at least an hour away, so start + 1h is still the same NZ day.
+    auckland = ZoneInfo("Pacific/Auckland")
+    now = datetime.now(UTC)
+    day = now.astimezone(auckland).date()
+    start = datetime.combine(day, time(12), tzinfo=auckland)
+    while start < now + timedelta(hours=1):
+        day += timedelta(days=1)
+        start = datetime.combine(day, time(12), tzinfo=auckland)
+    start = start.astimezone(UTC)
 
-    process_outbox(sending, sender=sender, mail=FakeMail(), now=T)
+    process_outbox(sending, sender=sender, mail=FakeMail(), now=start)
     assert len(sender.sent) == 1
-    process_outbox(sending, sender=sender, mail=FakeMail(), now=T + timedelta(hours=1))
+    process_outbox(sending, sender=sender, mail=FakeMail(), now=start + timedelta(hours=1))
     assert len(sender.sent) == 1
 
-    process_outbox(sending, sender=sender, mail=FakeMail(), now=T + timedelta(days=1))
+    process_outbox(sending, sender=sender, mail=FakeMail(), now=start + timedelta(days=1))
     assert len(sender.sent) == 2
 
 
@@ -576,3 +600,480 @@ def test_a_reply_cancels_a_waiting_draft(client, conn, sending):
     assert _application(conn, app_id)["status"] == "replied"
     assert [r["status"] for r in _outbox(conn, app_id) if str(r["id"]) == draft_id] == ["cancelled"]
     assert client.post(f"/outbox/{draft_id}/send").status_code == 404
+
+
+# Speculative applications: made by Google Maps outreach, with no advert.
+
+PROSPECT_DAY = SPECULATIVE_DAY  # 24 November 2026, evening in New Zealand
+STOP_LINE = "If you'd rather I didn't contact you again, just reply and I won't."
+
+
+def _speculative_setup(conn, database_url, tmp_path, name="Timaru Trades") -> UUID:
+    """A saved employer with a published email, prospected once: an approved speculative record."""
+    profile_id = _profile(conn)
+    _switch_on(conn, profile_id)
+    _employer(conn, profile_id, name)
+    url, text = _with_email(name)
+    _run(conn, _settings(database_url, tmp_path), profile_id, _tools({url: text}), None,
+         now=PROSPECT_DAY)
+    return profile_id
+
+
+def _send_pass(settings, sender, now, mail=None) -> dict[str, int]:
+    """One outbox run. The contact tools are empty, so nothing reads an employer's site."""
+    return process_outbox(settings, sender=sender, mail=mail or FakeMail(), now=now,
+                          contact_tools=_tools({}))
+
+
+def _speculative_application(conn) -> dict:
+    return conn.execute(
+        "select * from applications where kind = 'speculative' order by created_at limit 1"
+    ).fetchone()
+
+
+def _midday_nz(day: date) -> datetime:
+    return datetime.combine(day, time(0), tzinfo=UTC)  # 11 am or 1 pm in New Zealand
+
+
+def test_speculative_email_has_the_subject_and_stop_line(conn, database_url, tmp_path, sending):
+    _speculative_setup(conn, database_url, tmp_path)
+    sender = FakeSender()
+
+    report = _send_pass(sending, sender, PROSPECT_DAY)
+
+    assert report["sent"] == 1
+    email = sender.sent[0]
+    assert email["to"] == "hello@timarutrades.co.nz"
+    assert email["subject"] == "Enquiry about opportunities at Timaru Trades – Sample Person"
+    assert email["body"].startswith("Kia ora,")
+    assert email["body"].endswith("\n\n" + STOP_LINE)
+    assert email["attachment_name"] == "Sample Person - CV.pdf"
+    assert email["attachment"].read_bytes().startswith(b"%PDF-")
+
+
+def test_speculative_gets_one_follow_up_then_closes(conn, database_url, tmp_path, sending):
+    _speculative_setup(conn, database_url, tmp_path)
+    sender = FakeSender()
+    _send_pass(sending, sender, PROSPECT_DAY)
+    first_due = _speculative_application(conn)["next_follow_up"]
+    assert first_due == add_working_days(nz_today(PROSPECT_DAY), 5)
+
+    _send_pass(sending, sender, _midday_nz(first_due))
+
+    assert len(sender.sent) == 2
+    follow_up = sender.sent[1]
+    assert follow_up["subject"] == (
+        "Re: Enquiry about opportunities at Timaru Trades – Sample Person"
+    )
+    assert follow_up["reply_to_message_id"] == "<msg1@example.com>"
+    assert follow_up["body"].endswith(STOP_LINE)
+    second_due = _speculative_application(conn)["next_follow_up"]
+    assert second_due == add_working_days(first_due, 5)
+
+    _send_pass(sending, sender, _midday_nz(second_due))
+
+    app = _speculative_application(conn)
+    assert app["status"] == "closed"
+    assert len(sender.sent) == 2
+    assert conn.execute(
+        "select count(*) as n from calls where application_id = %s", (app["id"],)
+    ).fetchone()["n"] == 0
+    notes = [e["payload"]["text"] for e in conn.execute(
+        "select payload from events where application_id = %s and type = 'note'", (app["id"],)
+    ).fetchall()]
+    assert "Closed: no reply after one follow-up" in notes
+
+
+def test_adverts_send_before_speculative_within_the_daily_limit(
+    client, conn, database_url, tmp_path, sending
+):
+    app_id = _approved(client, conn)
+    client.post(f"/applications/{app_id}/send", json={"to": "jobs@example.co.nz"})
+    _speculative_setup(conn, database_url, tmp_path)
+    conn.execute("update profiles set daily_send_limit = 0")  # queue without sending yet
+    conn.commit()
+    _send_pass(sending, FakeSender(), PROSPECT_DAY)
+    conn.execute("update profiles set daily_send_limit = 1")
+    conn.commit()
+    sender = FakeSender()
+
+    _send_pass(sending, sender, T)
+
+    assert [email["subject"] for email in sender.sent] == [
+        "Application for Data Engineer – Sample Person"]
+    speculative = conn.execute(
+        "select o.status from outbox o join applications a on a.id = o.application_id "
+        "where a.kind = 'speculative'"
+    ).fetchone()
+    assert speculative["status"] == "queued"
+
+
+def test_a_reply_to_a_speculative_email_blocks_the_employer(
+    conn, database_url, tmp_path, sending
+):
+    profile_id = _speculative_setup(conn, database_url, tmp_path)
+    sender = FakeSender()
+    _send_pass(sending, sender, PROSPECT_DAY)
+    to = sender.sent[0]["to"]
+
+    _send_pass(sending, sender, PROSPECT_DAY + timedelta(hours=1),
+               FakeMail(replies_from=(to,)))
+
+    app = _speculative_application(conn)
+    assert app["status"] == "replied"
+    company_id = conn.execute(
+        "select company_id from jobs where id = %s", (app["job_id"],)
+    ).fetchone()["company_id"]
+    assert company_id in outreach_repo.blocked(conn, profile_id)
+    reason = conn.execute(
+        "select reason from outreach_blocks where company_id = %s", (company_id,)
+    ).fetchone()["reason"]
+    assert reason == "replied"
+
+
+def test_a_bounce_on_a_speculative_email_blocks_the_employer(
+    conn, database_url, tmp_path, sending
+):
+    profile_id = _speculative_setup(conn, database_url, tmp_path)
+    sender = FakeSender()
+    _send_pass(sending, sender, PROSPECT_DAY)
+    to = sender.sent[0]["to"]
+
+    _send_pass(sending, sender, PROSPECT_DAY + timedelta(hours=1),
+               FakeMail(bounced=(to,)))
+
+    app = _speculative_application(conn)
+    assert app["status"] == "closed"
+    company_id = conn.execute(
+        "select company_id from jobs where id = %s", (app["job_id"],)
+    ).fetchone()["company_id"]
+    assert company_id in outreach_repo.blocked(conn, profile_id)
+    assert len(sender.sent) == 1  # the bounced address is not emailed again
+
+
+def _speculative_outbox_row(conn) -> dict:
+    return conn.execute(
+        "select o.* from outbox o join applications a on a.id = o.application_id "
+        "where a.kind = 'speculative' order by o.scheduled_at limit 1"
+    ).fetchone()
+
+
+def _notes(conn, app_id) -> list[str]:
+    return [e["payload"]["text"] for e in conn.execute(
+        "select payload from events where application_id = %s and type = 'note'", (app_id,)
+    ).fetchall()]
+
+
+def test_a_cancelled_speculative_email_is_closed_and_never_re_sent(
+    conn, database_url, tmp_path, sending
+):
+    profile_id = _speculative_setup(conn, database_url, tmp_path)
+    conn.execute("update profiles set daily_send_limit = 0 where id = %s", (profile_id,))
+    conn.commit()
+    _send_pass(sending, FakeSender(), PROSPECT_DAY)  # queued, not sent
+    queued = _speculative_outbox_row(conn)
+    assert queued["status"] == "queued"
+    outbox_service.cancel(conn, profile_id, queued["id"])
+    conn.commit()
+    conn.execute("update profiles set daily_send_limit = 15 where id = %s", (profile_id,))
+    conn.commit()
+    sender = FakeSender()
+
+    _send_pass(sending, sender, PROSPECT_DAY + timedelta(hours=1))
+
+    assert sender.sent == []
+    app = _speculative_application(conn)
+    assert app["status"] == "closed"
+    assert conn.execute(
+        "select count(*) as n from outbox where application_id = %s", (app["id"],)
+    ).fetchone()["n"] == 1
+    assert "Closed: you cancelled the enquiry" in _notes(conn, app["id"])
+
+
+def test_a_speculative_record_is_closed_when_its_employer_is_blocked_before_queueing(
+    conn, database_url, tmp_path, sending
+):
+    profile_id = _speculative_setup(conn, database_url, tmp_path)
+    company_id = conn.execute(
+        "select j.company_id from applications a join jobs j on j.id = a.job_id "
+        "where a.kind = 'speculative'"
+    ).fetchone()["company_id"]
+    outreach_repo.block(conn, profile_id, company_id, "manual")
+    conn.commit()
+    sender = FakeSender()
+
+    _send_pass(sending, sender, PROSPECT_DAY)
+
+    assert sender.sent == []
+    app = _speculative_application(conn)
+    assert app["status"] == "closed"
+    assert conn.execute(
+        "select count(*) as n from outbox where application_id = %s", (app["id"],)
+    ).fetchone()["n"] == 0
+    assert "Closed: the employer is blocked from enquiries" in _notes(conn, app["id"])
+
+
+def test_a_speculative_record_with_no_address_is_closed_with_a_note(
+    conn, database_url, tmp_path, sending, monkeypatch
+):
+    _speculative_setup(conn, database_url, tmp_path)
+    monkeypatch.setattr(outbox_service, "suggested_address", lambda conn, row: None)
+    sender = FakeSender()
+
+    _send_pass(sending, sender, PROSPECT_DAY)
+
+    assert sender.sent == []
+    app = _speculative_application(conn)
+    assert app["status"] == "closed"
+    assert conn.execute(
+        "select count(*) as n from outbox where application_id = %s", (app["id"],)
+    ).fetchone()["n"] == 0
+    assert "Closed: no email address published" in _notes(conn, app["id"])
+
+
+def test_ask_mode_turns_a_speculative_follow_up_into_a_draft_ending_with_the_stop_line(
+    conn, database_url, tmp_path, sending
+):
+    profile_id = _speculative_setup(conn, database_url, tmp_path)
+    outbox_service.save_follow_up_settings(conn, profile_id, FollowUpSettings(mode="ask"))
+    conn.commit()
+    sender = FakeSender()
+    _send_pass(sending, sender, PROSPECT_DAY)
+    first_due = _speculative_application(conn)["next_follow_up"]
+
+    _send_pass(sending, sender, _midday_nz(first_due))
+
+    assert len(sender.sent) == 1  # the follow-up waits as a draft; nothing else is sent
+    app = _speculative_application(conn)
+    draft = conn.execute(
+        "select * from outbox where application_id = %s and kind = 'follow_up'", (app["id"],)
+    ).fetchone()
+    assert draft["status"] == "draft"
+    assert draft["subject"] == "Re: Enquiry about opportunities at Timaru Trades – Sample Person"
+    assert draft["body"].endswith(STOP_LINE)
+
+
+def test_the_outbox_labels_speculative_items_and_advert_items_as_advert(
+    client, conn, database_url, tmp_path, sending
+):
+    _speculative_setup(conn, database_url, tmp_path)
+    app_id = str(_speculative_application(conn)["id"])
+    sent = client.post(
+        f"/applications/{app_id}/send", json={"to": "hello@timarutrades.co.nz"}
+    )
+    sent.raise_for_status()
+
+    view = client.get("/outbox").json()
+
+    assert [item["application_kind"] for item in view["queued"]] == ["speculative"]
+
+
+def _google_maps_off(conn, profile_id) -> None:
+    """Auto mode stays on, Google Maps outreach is switched off, as the Settings page saves it."""
+    auto_service.save_settings(
+        conn, profile_id,
+        AutoModeSettings(enabled=True, prospects_enabled=False, prospects_per_day=2,
+                         business_types=[]),
+    )
+    conn.commit()
+
+
+def _two_enquiries(conn, database_url, tmp_path) -> UUID:
+    """Two employers prospected, so two approved speculative records, none queued yet."""
+    profile_id = _profile(conn)
+    _switch_on(conn, profile_id, per_day=2)
+    pages = {}
+    for name in ("Timaru Trades", "Timaru Builders"):
+        _employer(conn, profile_id, name)
+        url, text = _with_email(name)
+        pages[url] = text
+    _run(conn, _settings(database_url, tmp_path), profile_id, _tools(pages), None,
+         now=PROSPECT_DAY)
+    return profile_id
+
+
+def test_turning_google_maps_off_closes_approved_enquiries_and_cancels_queued_ones(
+    conn, database_url, tmp_path, sending
+):
+    profile_id = _two_enquiries(conn, database_url, tmp_path)
+    queued_app = conn.execute(
+        "select id from applications where kind = 'speculative' and profile_id = %s "
+        "order by created_at limit 1", (profile_id,)
+    ).fetchone()["id"]
+    outbox_service.queue_email(conn, profile_id, queued_app, "hello@timarutrades.co.nz",
+                               sending, PROSPECT_DAY)
+    conn.commit()
+
+    _google_maps_off(conn, profile_id)
+
+    statuses = {
+        row["id"]: row["status"] for row in conn.execute(
+            "select id, status from applications where kind = 'speculative'"
+        ).fetchall()
+    }
+    assert set(statuses.values()) == {"closed"}
+    assert conn.execute(
+        "select status from outbox where application_id = %s", (queued_app,)
+    ).fetchone()["status"] == "cancelled"
+    for app_id in statuses:
+        assert "Closed: Google Maps outreach was turned off" in _notes(conn, app_id)
+    sender = FakeSender()
+    _send_pass(sending, sender, PROSPECT_DAY + timedelta(hours=1))
+    assert sender.sent == []
+
+
+def test_a_queued_enquiry_is_never_sent_when_the_switch_is_off_by_any_route(
+    conn, database_url, tmp_path, sending
+):
+    profile_id = _two_enquiries(conn, database_url, tmp_path)
+    app_id = conn.execute(
+        "select id from applications where kind = 'speculative' order by created_at limit 1"
+    ).fetchone()["id"]
+    outbox_service.queue_email(conn, profile_id, app_id, "hello@timarutrades.co.nz",
+                               sending, PROSPECT_DAY)
+    # Switched off without the save's clean-up (the defence in the sender must still hold).
+    conn.execute("update profiles set prospects_enabled = false where id = %s", (profile_id,))
+    conn.commit()
+    sender = FakeSender()
+
+    _send_pass(sending, sender, PROSPECT_DAY + timedelta(hours=1))
+
+    assert sender.sent == []
+    assert conn.execute(
+        "select status from outbox where application_id = %s", (app_id,)
+    ).fetchone()["status"] == "cancelled"
+    assert _application(conn, app_id)["status"] == "closed"
+
+
+def test_an_approved_enquiry_is_not_queued_while_the_switch_is_off(
+    conn, database_url, tmp_path, sending
+):
+    profile_id = _two_enquiries(conn, database_url, tmp_path)
+    conn.execute("update profiles set prospects_enabled = false where id = %s", (profile_id,))
+    conn.commit()
+
+    _send_pass(sending, FakeSender(), PROSPECT_DAY + timedelta(hours=1))
+
+    assert conn.execute(
+        "select count(*) as n from outbox o join applications a on a.id = o.application_id "
+        "where a.kind = 'speculative'"
+    ).fetchone()["n"] == 0
+    assert {row["status"] for row in conn.execute(
+        "select status from applications where kind = 'speculative'"
+    ).fetchall()} == {"closed"}
+
+
+def test_a_sent_enquiry_gets_no_follow_up_but_its_replies_are_still_seen(
+    conn, database_url, tmp_path, sending
+):
+    profile_id = _speculative_setup(conn, database_url, tmp_path)
+    sender = FakeSender()
+    _send_pass(sending, sender, PROSPECT_DAY)
+    app = _speculative_application(conn)
+    assert app["status"] == "sent"
+
+    _google_maps_off(conn, profile_id)
+    _send_pass(sending, sender, _midday_nz(add_working_days(nz_today(PROSPECT_DAY), 5)))
+
+    assert len(sender.sent) == 1
+    app = _speculative_application(conn)
+    assert app["status"] == "sent"
+    assert app["next_follow_up"] is None
+    assert conn.execute(
+        "select count(*) as n from outbox where kind = 'follow_up'"
+    ).fetchone()["n"] == 0
+    assert app["id"] in {row["id"] for row in outbox_repo.awaiting_reply(conn)}
+
+
+def test_a_due_follow_up_is_not_queued_while_the_switch_is_off(
+    conn, database_url, tmp_path, sending
+):
+    profile_id = _speculative_setup(conn, database_url, tmp_path)
+    sender = FakeSender()
+    _send_pass(sending, sender, PROSPECT_DAY)
+    due = _speculative_application(conn)["next_follow_up"]
+    conn.execute("update profiles set prospects_enabled = false where id = %s", (profile_id,))
+    conn.commit()
+
+    _send_pass(sending, sender, _midday_nz(due))
+
+    assert len(sender.sent) == 1
+    assert conn.execute(
+        "select count(*) as n from outbox where kind = 'follow_up'"
+    ).fetchone()["n"] == 0
+    assert _speculative_application(conn)["next_follow_up"] is None
+
+
+def test_turning_google_maps_off_leaves_an_advert_queued_and_sent(
+    client, conn, database_url, tmp_path, sending
+):
+    app_id = _approved(client, conn)
+    client.post(f"/applications/{app_id}/send", json={"to": "jobs@example.co.nz"})
+    profile_id = _speculative_setup(conn, database_url, tmp_path)
+    _google_maps_off(conn, profile_id)
+    sender = FakeSender()
+
+    _send_pass(sending, sender, T)
+
+    assert [email["to"] for email in sender.sent] == ["jobs@example.co.nz"]
+    assert "Speculative" not in sender.sent[0]["subject"]
+
+
+def test_queue_email_refuses_an_advert_that_asks_for_applications_on_the_site(
+    client, conn, sending
+):
+    site_only = ADVERT.replace("Send your CV to Jobs@Example.co.nz.",
+                               "Apply online only through our site.")
+    app_id = _approved(client, conn, description=site_only)
+
+    refused = client.post(f"/applications/{app_id}/send", json={"to": "jobs@example.co.nz"})
+
+    assert refused.status_code == 400
+    assert "This advert asks you to apply on the job site." in refused.text
+    assert _application(conn, app_id)["apply_method"] is None
+    assert _outbox(conn, app_id) == []
+
+
+def test_a_cancel_that_races_a_send_does_not_overwrite_the_sent_email(
+    conn, database_url, tmp_path, sending, monkeypatch
+):
+    profile_id = _speculative_setup(conn, database_url, tmp_path)
+    app_id = _speculative_application(conn)["id"]
+    outbox_service.queue_email(conn, profile_id, app_id, "hello@timarutrades.co.nz", sending,
+                               PROSPECT_DAY)
+    conn.commit()
+    row = _speculative_outbox_row(conn)
+    # The send lands after cancel has read the email as queued, and before cancel writes.
+    conn.execute("update outbox set status = 'sent', sent_at = %s where id = %s",
+                 (PROSPECT_DAY, row["id"]))
+    conn.execute("update applications set status = 'sent', apply_method = 'email', "
+                 "applied_at = %s where id = %s", (PROSPECT_DAY, app_id))
+    conn.commit()
+    real_get = outbox_repo.get
+    reads = []
+
+    def read_queued_first(conn_, profile, outbox_id):
+        reads.append(outbox_id)
+        found = real_get(conn_, profile, outbox_id)
+        if len(reads) == 1:
+            return {**found, "status": "queued"}
+        return found
+
+    monkeypatch.setattr(outbox_repo, "get", read_queued_first)
+
+    with pytest.raises(Conflict):
+        outbox_service.cancel(conn, profile_id, row["id"])
+    conn.rollback()
+
+    assert _speculative_outbox_row(conn)["status"] == "sent"
+    assert _speculative_application(conn)["status"] == "sent"
+
+
+def test_ready_to_apply_items_say_whether_they_are_speculative(
+    client, conn, database_url, tmp_path
+):
+    _speculative_setup(conn, database_url, tmp_path)
+
+    view = client.get("/outbox").json()
+
+    assert [item["application_kind"] for item in view["to_send"]] == ["speculative"]

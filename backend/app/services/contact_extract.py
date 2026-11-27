@@ -7,7 +7,7 @@ from urllib.parse import urljoin, urlsplit
 
 from app.core.emails import find_emails
 from app.core.phones import nz_e164
-from app.core.urls import without_fragment
+from app.core.urls import is_file_path, without_fragment
 from app.providers.company.careers import find_careers_link
 
 # NZ numbers as written on pages, bounded to NZ shapes so adjacent numbers stay separate.
@@ -20,7 +20,7 @@ _DOMESTIC = rf"(?:\(0[3-79]\)|0[3-79]|02\d|0(?:800|508)){_SEP}{_BODY}"
 _INTERNATIONAL = rf"\+64{_SEP}(?:\(0\){_SEP})?(?:2\d|[3-79]|800|508){_SEP}{_BODY}"
 _PHONE = re.compile(rf"(?<![\w+])(?:{_INTERNATIONAL}|{_DOMESTIC})(?!\d)")
 _MD_LINK = re.compile(r"\[([^\]]*)\]\(([^)\s]+)")
-_CONTACT = re.compile(r"contact|get in touch|get-in-touch", re.IGNORECASE)
+_CONTACT = re.compile(r"\bcontact\b|get in touch|get-in-touch", re.IGNORECASE)
 _LINKEDIN = re.compile(r"https?://(?:www\.)?linkedin\.com/company/[^\s)\"'>]+")
 _HIRING_LOCAL_PARTS = frozenset({
     "careers", "jobs", "job", "hr", "recruit", "recruitment", "recruiting",
@@ -74,6 +74,8 @@ def _contact_url(page_text: str, page_url: str) -> str | None:
             path = urlsplit(href).path
             url = without_fragment(urljoin(page_url, href))
         except ValueError:
+            continue
+        if is_file_path(path):
             continue
         if _CONTACT.search(text) or _CONTACT.search(path):
             return url

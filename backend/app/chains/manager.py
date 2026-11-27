@@ -11,6 +11,7 @@ from app.chains.score_chain import (
     LLMScoreChain,
     ScoreChain,
 )
+from app.chains.speculative_chain import SpeculativeChain
 from app.chains.tailor_chain import FactCheckChain, TailorChain
 from app.core.config import Settings
 from app.providers.llm.factory import build_claude
@@ -77,3 +78,9 @@ def get_prep_chains(settings: Settings) -> PrepChains | None:
         explore=ExploreChain(small, settings.prep_model),
         write=WriteChain(writer, settings.prep_write_model),
     )
+
+
+def get_speculative_chain(settings: Settings) -> SpeculativeChain | None:
+    """The AI cover note for Google Maps outreach, or None without a Claude key."""
+    llm = build_claude(settings, settings.tailor_model, effort="medium")
+    return SpeculativeChain(llm) if llm else None

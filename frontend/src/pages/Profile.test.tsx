@@ -28,6 +28,7 @@ function profile(overrides: Partial<ProfileView> = {}): ProfileView {
     connections: { claude: true, gemini: false, trademe: false, gmail: false, places: false, tavily: false },
     warning: null,
     contact: { name: "Sample Person", email: "sample@example.invalid", phone: "021 000 0000" },
+    closed_outside_areas: 0,
     ...overrides,
   };
 }
@@ -368,5 +369,35 @@ describe("Profile", () => {
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Database down"));
     expect(screen.queryByText("SQL")).not.toBeInTheDocument();
+  });
+
+  it("says how many jobs were closed outside the saved areas", async () => {
+    withProfile(profile(), {
+      "PUT /profile": (body: unknown) => ({
+        body: { ...profile(), ...(body as object), closed_outside_areas: 1 },
+      }),
+    });
+    const user = userEvent.setup();
+    renderPage(<Profile />);
+    await screen.findByText("resume.pdf");
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Closed 1 job outside your areas.")).toBeInTheDocument();
+  });
+
+  it("counts jobs closed outside the saved areas", async () => {
+    withProfile(profile(), {
+      "PUT /profile": (body: unknown) => ({
+        body: { ...profile(), ...(body as object), closed_outside_areas: 3 },
+      }),
+    });
+    const user = userEvent.setup();
+    renderPage(<Profile />);
+    await screen.findByText("resume.pdf");
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Closed 3 jobs outside your areas.")).toBeInTheDocument();
   });
 });

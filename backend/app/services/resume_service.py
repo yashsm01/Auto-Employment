@@ -11,8 +11,9 @@ from app.chains.resume_profile_chain import OfflineResumeChain, ResumeChain
 from app.core.config import Settings
 from app.core.documents import extract_contact_details, extract_resume_text, file_suffix
 from app.core.errors import BadRequest, NotFound, ProviderError
-from app.repositories import profiles_repo
+from app.repositories import applications_repo, events_repo, profiles_repo
 from app.schemas.resume import ProfileUpdate, ProfileView, ResumeProfile
+from app.services import lead_service
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +93,33 @@ def get_view(
     )
 
 
-def update(conn: psycopg.Connection, profile_id: UUID, body: ProfileUpdate) -> None:
+def _area_key(regions: list[str]) -> list[str]:
+    return sorted(region.casefold() for region in regions)
+
+
+def update(conn: psycopg.Connection, profile_id: UUID, body: ProfileUpdate) -> int:
+    """Save the profile. Returns how many open applications were closed for leaving the areas."""
     with conn.transaction():
+        before = profiles_repo.saved_regions(conn, profile_id)
         profiles_repo.update_profile(conn, profile_id, body)
+        if not body.regions or _area_key(before) == _area_key(body.regions):
+            return 0
+
+        outside = [
+            row["id"]
+            for row in applications_repo.open_with_places(conn, profile_id)
+            if not lead_service.in_regions(
+                row["location"], row["region"], row["title"], row["source"], body.regions
+            )
+        ]
+        if not outside:
+            return 0
+        applications_repo.close_many(conn, outside)
+        for application_id in outside:
+            events_repo.add(
+                conn, "note", application_id=application_id, payload={"text": "Outside your areas"}
+            )
+        return len(outside)
 
 
 def _display_name(filename: str) -> str:

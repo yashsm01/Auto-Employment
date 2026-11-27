@@ -100,6 +100,35 @@ def lock(
     ).fetchone()
 
 
+def company_of(conn: psycopg.Connection, application_id: UUID) -> UUID | None:
+    row = conn.execute(
+        "select j.company_id from applications a join jobs j on j.id = a.job_id "
+        "where a.id = %s",
+        (application_id,),
+    ).fetchone()
+    return row["company_id"] if row else None
+
+
+def open_with_places(conn: psycopg.Connection, profile_id: UUID | str) -> list[dict[str, Any]]:
+    """Found and shortlisted applications, with the job fields that decide area matching."""
+    return conn.execute(
+        """
+        select a.id, j.source, j.title, j.location, j.region
+        from applications a
+        join jobs j on j.id = a.job_id
+        where a.profile_id = %s and a.status in ('found', 'shortlisted')
+        """,
+        (profile_id,),
+    ).fetchall()
+
+
+def close_many(conn: psycopg.Connection, application_ids: list[UUID]) -> None:
+    conn.execute(
+        "update applications set status = 'closed', updated_at = now() where id = any(%s)",
+        (application_ids,),
+    )
+
+
 def set_status(conn: psycopg.Connection, application_id: UUID, status: str) -> None:
     conn.execute(
         "update applications set status = %s, updated_at = now() where id = %s",

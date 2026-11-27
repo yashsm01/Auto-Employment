@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from app.core.config import Settings
 from app.core.deps import get_settings
 from app.main import create_app
+from app.repositories import events_repo, profiles_repo
 from tests.documents import SAMPLE_RESUME_LINES, make_docx, make_pdf
 
 pytestmark = pytest.mark.postgres
@@ -165,3 +166,123 @@ def test_the_dashboard_origin_can_write(client):
     response = client.post("/runs/lead", headers={"Origin": "http://localhost:5173"})
 
     assert response.status_code == 200
+
+
+def _save_regions(client, regions):
+    body = _editable(client.get("/profile").json(), regions=regions)
+    return client.put("/profile", json=body)
+
+
+def _track(conn, *, external_id, title, location, region="", status="found", source="trademe"):
+    """Store a job and an application for the example profile. Returns the application id."""
+    profile_id = profiles_repo.first_profile_id(conn)
+    job = conn.execute(
+        "insert into jobs (source, external_id, title, location, region, dedupe_hash) "
+        "values (%s, %s, %s, %s, %s, %s) returning id",
+        (source, external_id, title, location, region, f"hash-{source}-{external_id}"),
+    ).fetchone()
+    application = conn.execute(
+        "insert into applications (profile_id, job_id, status) values (%s, %s, %s) returning id",
+        (profile_id, job["id"], status),
+    ).fetchone()
+    conn.commit()
+    return application["id"]
+
+
+def _status(conn, application_id):
+    row = conn.execute(
+        "select status from applications where id = %s", (application_id,)
+    ).fetchone()
+    return row["status"]
+
+
+def _notes(conn, application_id):
+    return [
+        event["payload"]["text"]
+        for event in events_repo.for_application(conn, application_id)
+        if event["type"] == "note"
+    ]
+
+
+def test_changing_areas_closes_outside_jobs(client, conn):
+    _save_regions(client, ["Auckland"]).raise_for_status()
+    outside_found = _track(
+        conn, external_id="a1", title="Python Developer",
+        location="Auckland City, Auckland", region="Auckland",
+    )
+    outside_shortlisted = _track(
+        conn, external_id="a2", title="Python Developer",
+        location="Auckland City, Auckland", region="Auckland", status="shortlisted",
+    )
+    inside = _track(
+        conn, external_id="w1", title="Python Developer",
+        location="Wellington Central, Wellington", region="Wellington",
+    )
+
+    response = _save_regions(client, ["Wellington"])
+
+    assert response.status_code == 200
+    assert response.json()["closed_outside_areas"] == 2
+    assert _status(conn, outside_found) == "closed"
+    assert _status(conn, outside_shortlisted) == "closed"
+    assert _status(conn, inside) == "found"
+    assert _notes(conn, outside_found) == ["Outside your areas"]
+    assert _notes(conn, inside) == []
+
+
+def test_approved_jobs_are_kept_when_areas_change(client, conn):
+    _save_regions(client, ["Auckland"]).raise_for_status()
+    statuses = ["approved", "tailoring", "ready", "sent", "followed_up", "replied", "closed"]
+    tracked = [
+        _track(
+            conn, external_id=f"s{index}", title="Python Developer",
+            location="Auckland City, Auckland", region="Auckland", status=status,
+        )
+        for index, status in enumerate(statuses)
+    ]
+
+    response = _save_regions(client, ["Wellington"])
+
+    assert response.json()["closed_outside_areas"] == 0
+    assert [_status(conn, application_id) for application_id in tracked] == statuses
+
+
+def test_remote_area_keeps_remote_jobs(client, conn):
+    _save_regions(client, ["Auckland"]).raise_for_status()
+    remote = _track(
+        conn, external_id="r1", title="Data Engineer (Remote)", location="Remote", region="",
+    )
+    onsite = _track(
+        conn, external_id="o1", title="Data Engineer",
+        location="Wellington Central, Wellington", region="Wellington",
+    )
+
+    response = _save_regions(client, ["Remote NZ"])
+
+    assert response.json()["closed_outside_areas"] == 1
+    assert _status(conn, remote) == "found"
+    assert _status(conn, onsite) == "closed"
+
+
+def test_reordering_or_recasing_areas_closes_nothing(client, conn):
+    _save_regions(client, ["Auckland", "Wellington"]).raise_for_status()
+    dunedin = _track(
+        conn, external_id="d1", title="Python Developer", location="Dunedin", region="Otago",
+    )
+
+    response = _save_regions(client, ["wellington", "AUCKLAND"])
+
+    assert response.json()["closed_outside_areas"] == 0
+    assert _status(conn, dunedin) == "found"
+
+
+def test_clearing_all_areas_closes_nothing(client, conn):
+    _save_regions(client, ["Auckland"]).raise_for_status()
+    dunedin = _track(
+        conn, external_id="d2", title="Python Developer", location="Dunedin", region="Otago",
+    )
+
+    response = _save_regions(client, [])
+
+    assert response.json()["closed_outside_areas"] == 0
+    assert _status(conn, dunedin) == "found"

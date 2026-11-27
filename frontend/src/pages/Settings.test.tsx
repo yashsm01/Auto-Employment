@@ -32,10 +32,24 @@ const autoMode = {
   enabled: false,
   min_score: 80,
   daily_limit: 5,
+  prospects_enabled: false,
+  prospects_per_day: 5,
+  business_types: [] as string[],
+  business_types_suggested: [] as string[],
   approved_today: 2,
   sending_enabled: false,
   calls_enabled: true,
 };
+
+const googleMaps = {
+  ...autoMode,
+  enabled: true,
+  prospects_enabled: true,
+  prospects_per_day: 4,
+  business_types: ["Plumbing", "Electrical"],
+};
+
+const GOOGLE_SWITCH = "Email Google Maps employers automatically";
 
 describe("Settings", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -130,8 +144,161 @@ describe("Settings", () => {
         enabled: true,
         min_score: 85,
         daily_limit: 3,
+        prospects_enabled: false,
+        prospects_per_day: 5,
+        business_types: [],
       }),
     );
+  });
+
+  it("saving the existing auto mode fields keeps the Google Maps settings", async () => {
+    const calls = mockApi({
+      "GET /settings/phase4": () => ({ body: view() }),
+      "GET /auto-mode": () => ({ body: googleMaps }),
+      "GET /settings/follow-ups": () => ({ body: { mode: "auto" } }),
+      "PUT /auto-mode": (body) => ({ body: { ...googleMaps, ...(body as object) } }),
+    });
+    renderPage(<Settings />);
+
+    const card = await screen.findByRole("region", { name: "Auto mode" });
+    const score = within(card).getByLabelText("Minimum score");
+    await userEvent.clear(score);
+    await userEvent.type(score, "90");
+    await userEvent.click(within(card).getByRole("button", { name: "Save auto mode" }));
+
+    expect(await within(card).findByText("Auto mode settings saved.")).toBeInTheDocument();
+    expect(calls.find((c) => c.method === "PUT" && c.path === "/auto-mode")?.body).toEqual({
+      enabled: true,
+      min_score: 90,
+      daily_limit: 5,
+      prospects_enabled: true,
+      prospects_per_day: 4,
+      business_types: ["Plumbing", "Electrical"],
+    });
+  });
+
+  it("the Google Maps settings save", async () => {
+    const calls = mockApi({
+      "GET /settings/phase4": () => ({ body: view() }),
+      "GET /auto-mode": () => ({ body: { ...googleMaps, prospects_enabled: false } }),
+      "GET /settings/follow-ups": () => ({ body: { mode: "auto" } }),
+      "PUT /auto-mode": (body) => ({ body: { ...googleMaps, ...(body as object) } }),
+    });
+    renderPage(<Settings />);
+
+    const card = await screen.findByRole("region", { name: "Auto mode" });
+    await userEvent.click(within(card).getByRole("checkbox", { name: GOOGLE_SWITCH }));
+    const perDay = within(card).getByLabelText("New employers a day");
+    await userEvent.clear(perDay);
+    await userEvent.type(perDay, "7");
+    await userEvent.type(within(card).getByLabelText("Add a business type"), "Roofing{Enter}");
+    await userEvent.click(within(card).getByRole("button", { name: "Save auto mode" }));
+
+    expect(await within(card).findByText("Auto mode settings saved.")).toBeInTheDocument();
+    expect(calls.find((c) => c.method === "PUT" && c.path === "/auto-mode")?.body).toEqual({
+      enabled: true,
+      min_score: 80,
+      daily_limit: 5,
+      prospects_enabled: true,
+      prospects_per_day: 7,
+      business_types: ["Plumbing", "Electrical", "Roofing"],
+    });
+  });
+
+  it("the switch reads off while Auto mode is off, even when outreach is stored on", async () => {
+    mockApi({
+      "GET /settings/phase4": () => ({ body: view() }),
+      "GET /auto-mode": () => ({ body: { ...googleMaps, enabled: false } }),
+      "GET /settings/follow-ups": () => ({ body: { mode: "auto" } }),
+    });
+    renderPage(<Settings />);
+
+    const card = await screen.findByRole("region", { name: "Auto mode" });
+    const googleSwitch = within(card).getByRole("checkbox", { name: GOOGLE_SWITCH });
+    expect(googleSwitch).not.toBeChecked();
+    expect(googleSwitch).toBeDisabled();
+    expect(within(card).getByText("Turn on Auto mode first.")).toBeInTheDocument();
+  });
+
+  it("the switch needs Auto mode", async () => {
+    const calls = mockApi({
+      "GET /settings/phase4": () => ({ body: view() }),
+      "GET /auto-mode": () => ({ body: { ...googleMaps, enabled: false } }),
+      "GET /settings/follow-ups": () => ({ body: { mode: "auto" } }),
+      "PUT /auto-mode": (body) => ({ body }),
+    });
+    renderPage(<Settings />);
+
+    const card = await screen.findByRole("region", { name: "Auto mode" });
+    expect(within(card).getByRole("checkbox", { name: GOOGLE_SWITCH })).toBeDisabled();
+    expect(within(card).getByText("Turn on Auto mode first.")).toBeInTheDocument();
+
+    await userEvent.click(within(card).getByRole("checkbox", { name: "Auto mode" }));
+    expect(within(card).getByRole("checkbox", { name: GOOGLE_SWITCH })).toBeEnabled();
+    expect(within(card).queryByText("Turn on Auto mode first.")).not.toBeInTheDocument();
+
+    // Turning Auto mode back off must not send Google Maps outreach on, which the server refuses.
+    await userEvent.click(within(card).getByRole("checkbox", { name: "Auto mode" }));
+    await userEvent.click(within(card).getByRole("button", { name: "Save auto mode" }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === "PUT")?.body).toEqual(
+        expect.objectContaining({ enabled: false, prospects_enabled: false }),
+      ),
+    );
+  });
+
+  it("shows the server's refusal when Google Maps outreach needs Auto mode", async () => {
+    mockApi({
+      "GET /settings/phase4": () => ({ body: view() }),
+      "GET /auto-mode": () => ({ body: autoMode }),
+      "GET /settings/follow-ups": () => ({ body: { mode: "auto" } }),
+      "PUT /auto-mode": () => ({ status: 400, body: { detail: "Turn on Auto mode first." } }),
+    });
+    renderPage(<Settings />);
+
+    const card = await screen.findByRole("region", { name: "Auto mode" });
+    await userEvent.click(within(card).getByRole("checkbox", { name: "Auto mode" }));
+    await userEvent.click(within(card).getByRole("button", { name: "Save auto mode" }));
+
+    expect(await within(card).findByRole("alert")).toHaveTextContent("Turn on Auto mode first.");
+  });
+
+  it("business types start from the suggestions until you save", async () => {
+    const calls = mockApi({
+      "GET /settings/phase4": () => ({ body: view() }),
+      "GET /auto-mode": () => ({
+        body: { ...autoMode, enabled: true, business_types_suggested: ["Cafe", "Plumbing"] },
+      }),
+      "GET /settings/follow-ups": () => ({ body: { mode: "auto" } }),
+      "PUT /auto-mode": (body) => ({ body }),
+    });
+    renderPage(<Settings />);
+
+    const card = await screen.findByRole("region", { name: "Auto mode" });
+    expect(within(card).getByText(/Suggested from your resume/)).toBeInTheDocument();
+    await userEvent.click(within(card).getByRole("button", { name: "Remove Cafe" }));
+    await userEvent.click(within(card).getByRole("button", { name: "Save auto mode" }));
+
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === "PUT")?.body).toEqual(
+        expect.objectContaining({ business_types: ["Plumbing"] }),
+      ),
+    );
+  });
+
+  it("refuses a business type that is too long and ignores a duplicate", async () => {
+    mockApi({
+      "GET /settings/phase4": () => ({ body: view() }),
+      "GET /auto-mode": () => ({ body: { ...autoMode, business_types: ["Plumbing"] } }),
+      "GET /settings/follow-ups": () => ({ body: { mode: "auto" } }),
+    });
+    renderPage(<Settings />);
+
+    const card = await screen.findByRole("region", { name: "Auto mode" });
+    await userEvent.type(within(card).getByLabelText("Add a business type"), "plumbing{Enter}");
+    expect(within(card).getAllByRole("button", { name: /^Remove / })).toHaveLength(1);
+    await userEvent.type(within(card).getByLabelText("Add a business type"), `${"x".repeat(61)}{Enter}`);
+    expect(within(card).getByText("Business types can be up to 60 characters.")).toBeInTheDocument();
   });
 
   it("shows a QR code to link WhatsApp, then lets you unlink it", async () => {

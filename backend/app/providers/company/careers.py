@@ -3,7 +3,7 @@
 import re
 from urllib.parse import urljoin, urlsplit
 
-from app.core.urls import without_fragment
+from app.core.urls import is_file_path, without_fragment
 from app.providers.company.website_reader import is_allowed_url
 
 _BOARD_PATTERNS = (
@@ -78,6 +78,8 @@ def find_careers_link(page: str, base_url: str) -> str | None:
             continue
 
         path = urlsplit(url).path
+        if is_file_path(path):
+            continue
         if _MAIN_CAREERS_TEXT.match(text):
             score = 3
         elif _CAREER_WORDS.search(text):

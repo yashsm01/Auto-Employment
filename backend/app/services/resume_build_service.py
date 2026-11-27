@@ -61,16 +61,20 @@ def load_context(conn: psycopg.Connection, application_id: str) -> dict[str, Any
     }
 
 
-def usable_sections(cached: dict[str, Any] | None) -> BaseSections | None:
-    """The master CV sections, but only when they have at least one role.
+def with_roles(sections: BaseSections | None) -> BaseSections | None:
+    """Sections for tailoring: only when they have at least one role.
 
     A saved skeleton (a blank form, or skills alone) is not the CV, so tailoring and the
     prep pack then use the uploaded text, as they did before sections were saved.
     """
+    return sections if sections is not None and sections.roles else None
+
+
+def usable_sections(cached: dict[str, Any] | None) -> BaseSections | None:
+    """The saved master CV sections for tailoring, or None without roles (see with_roles)."""
     if not cached:
         return None
-    sections = BaseSections(**cached)
-    return sections if sections.roles else None
+    return with_roles(BaseSections(**cached))
 
 
 def ensure_sections(
@@ -83,10 +87,11 @@ def ensure_sections(
 ) -> BaseSections | None:
     """Split the resume into parts once, and keep the result for later jobs.
 
-    Saved sections are never replaced here: a saved skeleton gives None, not a fresh split.
+    Returns the sections as they are, cached or freshly read, so the builder and coverage show
+    what was read. Tailoring applies with_roles() itself. Saved sections are never replaced here.
     """
     if cached:
-        return usable_sections(cached)
+        return BaseSections(**cached)
     if chain is None:
         return None
     sections = chain.run(raw_text, contact)

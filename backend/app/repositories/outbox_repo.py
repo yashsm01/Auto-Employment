@@ -20,7 +20,7 @@ def application(
 ) -> dict[str, Any] | None:
     return conn.execute(
         f"""
-        select a.id, a.status, a.apply_method, a.resume_id, a.follow_ups, a.applied_at,
+        select a.id, a.status, a.kind, a.apply_method, a.resume_id, a.follow_ups, a.applied_at,
                j.title, j.description, j.url, j.company_id, c.email as company_email,
                coalesce(c.name, 'Unknown employer') as company
         {_JOB}
@@ -29,6 +29,64 @@ def application(
         """,
         (application_id, profile_id),
     ).fetchone()
+
+
+def contact_rows(
+    conn: psycopg.Connection,
+    profile_id: UUID | str,
+    *,
+    application_id: UUID | str | None = None,
+    statuses: tuple[str, ...] | None = None,
+) -> list[dict[str, Any]]:
+    """This profile's applications, with what the employer's contact details need."""
+    filters, params = ["a.profile_id = %s"], [profile_id]
+    if application_id is not None:
+        filters.append("a.id = %s")
+        params.append(application_id)
+    if statuses is not None:
+        filters.append("a.status = any(%s)")
+        params.append(list(statuses))
+    return conn.execute(
+        f"""
+        select a.id, a.kind, a.status, j.title, j.description, j.url, j.company_id,
+               c.name as company_name, coalesce(c.name, 'Unknown employer') as company,
+               c.website, c.email as company_email,
+               c.contacts_checked_at, c.contacts_attempted_at,
+               exists (select 1 from company_facts f
+                       where f.company_id = j.company_id
+                         and f.field = 'site_unreadable') as site_unreadable
+        from applications a
+        join jobs j on j.id = a.job_id
+        left join companies c on c.id = j.company_id
+        where {" and ".join(filters)}
+        order by a.updated_at desc, a.id
+        """,
+        params,
+    ).fetchall()
+
+
+def first_application_addresses(
+    conn: psycopg.Connection, application_ids: list[UUID]
+) -> dict[UUID, str]:
+    """The address of each application's first application email, newest row first.
+
+    Cancelled emails do not count: they were never sent and will not be.
+    """
+    if not application_ids:
+        return {}
+    rows = conn.execute(
+        """
+        select application_id, to_address from outbox
+        where application_id = any(%s) and kind = 'application'
+          and status in ('queued', 'draft', 'sent', 'failed')
+        order by scheduled_at desc, id
+        """,
+        (application_ids,),
+    ).fetchall()
+    found: dict[UUID, str] = {}
+    for row in rows:
+        found.setdefault(row["application_id"], row["to_address"])
+    return found
 
 
 def company_emails(conn: psycopg.Connection, company_id: UUID | None) -> list[str]:
@@ -111,6 +169,13 @@ def get(conn: psycopg.Connection, profile_id: UUID | str, outbox_id: UUID | str)
     ).fetchone()
 
 
+def application_kind(conn: psycopg.Connection, application_id: UUID | str) -> str | None:
+    row = conn.execute(
+        "select kind from applications where id = %s", (application_id,)
+    ).fetchone()
+    return row["kind"] if row else None
+
+
 def set_status(conn: psycopg.Connection, outbox_id: UUID | str, status: str) -> None:
     conn.execute("update outbox set status = %s where id = %s", (status, outbox_id))
 
@@ -126,16 +191,38 @@ def retry(conn: psycopg.Connection, outbox_id: UUID | str, now: datetime) -> Non
 def next_due(conn: psycopg.Connection, now: datetime, skip: list[str]) -> dict | None:
     return conn.execute(
         """
-        select o.*, a.profile_id, j.title
+        select o.*, a.profile_id, a.kind as application_kind, j.title
         from outbox o
         join applications a on a.id = o.application_id
         join jobs j on j.id = a.job_id
         where o.status = 'queued' and o.scheduled_at <= %s and o.id <> all(%s::uuid[])
-        order by o.scheduled_at, o.id
+        order by case when a.kind = 'speculative' then 1 else 0 end, o.scheduled_at, o.id
         limit 1
         """,
         (now, skip),
     ).fetchone()
+
+
+def cancel_speculative_pending(conn: psycopg.Connection, profile_id: UUID | str) -> None:
+    """Google Maps outreach is off: this profile's enquiries that are not sent yet are cancelled."""
+    conn.execute(
+        """
+        update outbox o set status = 'cancelled' from applications a
+        where a.id = o.application_id and a.profile_id = %s and a.kind = 'speculative'
+          and o.kind in ('application', 'follow_up') and o.status in ('queued', 'failed', 'draft')
+        """,
+        (profile_id,),
+    )
+
+
+def speculative_ids(conn: psycopg.Connection, profile_id: UUID | str,
+                    statuses: list[str]) -> list[UUID]:
+    rows = conn.execute(
+        "select id from applications where profile_id = %s and kind = 'speculative' "
+        "and status = any(%s)",
+        (profile_id, statuses),
+    ).fetchall()
+    return [row["id"] for row in rows]
 
 
 def mark_sent(conn: psycopg.Connection, outbox_id: UUID | str, message_id: str,
@@ -279,8 +366,8 @@ def awaiting_reply(conn: psycopg.Connection) -> list[dict[str, Any]]:
     """Emailed applications with no reply yet, and the address they went to."""
     return conn.execute(
         """
-        select a.id, a.profile_id, a.applied_at, o.to_address, o.id as outbox_id, j.title,
-               coalesce(c.name, 'The employer') as company
+        select a.id, a.profile_id, a.kind, a.applied_at, o.to_address, o.id as outbox_id,
+               j.title, j.company_id, coalesce(c.name, 'The employer') as company
         from applications a
         join jobs j on j.id = a.job_id
         left join companies c on c.id = j.company_id
@@ -297,7 +384,7 @@ def awaiting_reply(conn: psycopg.Connection) -> list[dict[str, Any]]:
 def follow_ups_due(conn: psycopg.Connection, today: date) -> list[dict[str, Any]]:
     return conn.execute(
         f"""
-        select a.id, a.profile_id, a.follow_ups, a.applied_at, a.next_follow_up, j.title,
+        select a.id, a.profile_id, a.kind, a.follow_ups, a.applied_at, a.next_follow_up, j.title,
                coalesce(c.name, 'the employer') as company
         {_JOB}
         where a.apply_method = 'email' and a.status in ('sent', 'followed_up')
@@ -310,7 +397,7 @@ def follow_ups_due(conn: psycopg.Connection, today: date) -> list[dict[str, Any]
 def to_send_rows(conn: psycopg.Connection, profile_id: UUID | str) -> list[dict[str, Any]]:
     return conn.execute(
         f"""
-        select a.id, j.title, j.description, j.url, j.company_id, c.email as company_email,
+        select a.id, a.kind, j.title, j.description, j.url, j.company_id, c.email as company_email,
                coalesce(c.name, 'Unknown employer') as company, r.id as resume_id,
                coalesce(r.content ->> 'cover_note', '') as cover_note
         {_JOB}
@@ -326,7 +413,8 @@ def outbox_rows(conn: psycopg.Connection, profile_id: UUID | str,
                 status: str) -> list[dict[str, Any]]:
     return conn.execute(
         """
-        select o.*, j.title, coalesce(c.name, 'Unknown employer') as company
+        select o.*, a.kind as application_kind, j.title,
+               coalesce(c.name, 'Unknown employer') as company
         from outbox o
         join applications a on a.id = o.application_id
         join jobs j on j.id = a.job_id
@@ -341,7 +429,8 @@ def outbox_rows(conn: psycopg.Connection, profile_id: UUID | str,
 def waiting_rows(conn: psycopg.Connection, profile_id: UUID | str) -> list[dict[str, Any]]:
     return conn.execute(
         f"""
-        select a.id, a.apply_method, a.applied_at, a.follow_ups, a.next_follow_up, j.title,
+        select a.id, a.kind as application_kind, a.apply_method, a.applied_at, a.follow_ups,
+               a.next_follow_up, j.title,
                j.url, coalesce(c.name, 'Unknown employer') as company,
                (select to_address from outbox
                 where application_id = a.id and kind = 'application' and status = 'sent'

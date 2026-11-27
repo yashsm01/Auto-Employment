@@ -8,11 +8,19 @@ import psycopg
 def get_company(conn: psycopg.Connection, company_id: UUID) -> dict[str, Any] | None:
     return conn.execute(
         """
-        select id, name, website, phone, email, linkedin_url, contacts_checked_at
+        select id, name, website, phone, email, linkedin_url, contacts_checked_at,
+               contacts_attempted_at
         from companies where id = %s
         """,
         (company_id,),
     ).fetchone()
+
+
+def set_attempted(conn: psycopg.Connection, company_id: UUID, attempted_at: datetime) -> None:
+    conn.execute(
+        "update companies set contacts_attempted_at = %s where id = %s",
+        (attempted_at, company_id),
+    )
 
 
 def set_checked(conn: psycopg.Connection, company_id: UUID, checked_at: datetime) -> None:

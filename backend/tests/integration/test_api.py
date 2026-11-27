@@ -113,3 +113,21 @@ def test_decision_rejects_an_unknown_action(client):
     url = f"/applications/{item['id']}/decision"
 
     assert client.post(url, json={"action": "send-now"}).status_code == 422
+
+
+def test_approving_a_job_starts_a_contact_lookup(client, conn, monkeypatch):
+    started = []
+    monkeypatch.setattr(
+        "app.api.applications.refresh_contacts",
+        lambda settings, company_id: started.append(str(company_id)),
+    )
+    item = _first_shortlisted(client)
+    company_id = str(conn.execute(
+        "select j.company_id from applications a join jobs j on j.id = a.job_id where a.id = %s",
+        (item["id"],),
+    ).fetchone()["company_id"])
+
+    response = client.post(f"/applications/{item['id']}/decision", json={"action": "approve"})
+
+    assert response.status_code == 200
+    assert started == [company_id]

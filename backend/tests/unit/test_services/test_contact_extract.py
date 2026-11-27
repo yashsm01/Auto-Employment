@@ -90,3 +90,37 @@ def test_a_careers_link_with_a_fragment_is_the_page_itself_without_it():
     assert find_careers_link("[Careers](/careers#roles)", "https://example.co.nz/") == (
         "https://example.co.nz/careers"
     )
+
+
+@pytest.mark.parametrize("markdown", [
+    "[Contactless payments](/x/contactless-payments)",
+    "[Read more](https://example.co.nz/x/contactless-cafe-payment-insight.webp)",
+    "[Contact](/images/contact.png)",
+    "[Contact us](/contact-us.jpg)",
+    "[Get in touch](/contact.pdf)",
+    "[Contact](/contact.svg)",
+    "[Contact](/contact.gif)",
+    "[Contact](/contact.docx)",
+])
+def test_contactless_and_image_links_are_not_contact_pages(markdown):
+    assert extract_contacts(markdown, "https://example.co.nz/").contact_url is None
+
+
+@pytest.mark.parametrize("markdown", [
+    "[Contact us](/contact-us)",
+    "[Contact](https://example.co.nz/contact)",
+    "[Get in touch](/get-in-touch)",
+    "[Contact us](/contact.html)",
+])
+def test_contact_pages_are_found(markdown):
+    assert extract_contacts(markdown, "https://example.co.nz/").contact_url is not None
+
+
+@pytest.mark.parametrize("markdown", [
+    "[Careers](/assets/careers-banner.webp)",
+    "[Jobs](/jobs.pdf)",
+    "[Careers](https://example.co.nz/careers.png)",
+    "[Vacancies](/vacancies.docx)",
+])
+def test_image_and_document_links_are_never_careers_pages(markdown):
+    assert find_careers_link(markdown, "https://example.co.nz/") is None

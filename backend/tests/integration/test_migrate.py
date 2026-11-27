@@ -12,7 +12,7 @@ pytestmark = pytest.mark.postgres
 PLAN_TABLES = {
     "profiles", "settings", "resumes", "resume_profiles", "companies", "company_facts",
     "contacts", "jobs", "applications", "feedback", "outbox", "calls", "events", "graph_runs",
-    "skill_decisions",
+    "skill_decisions", "outreach_blocks",
 }
 
 
@@ -86,6 +86,54 @@ def test_migration_0009_applies_on_an_existing_database(empty_database_url, tmp_
             )
 
 
+def test_migration_0011_applies_on_an_existing_database(empty_database_url, tmp_path):
+    # Migrate a database as it was before 0011, add an advert application, then apply 0011.
+    before = tmp_path / "before"
+    before.mkdir()
+    for path in MIGRATIONS.glob("*.sql"):
+        if path.name < "0011":
+            shutil.copy(path, before / path.name)
+
+    with connect(empty_database_url) as conn:
+        apply_migrations(conn, before)
+        conn.execute("insert into profiles (full_name) values ('Example Person')")
+        conn.execute("insert into companies (name) values ('Example Ltd')")
+        conn.execute(
+            "insert into jobs (company_id, source, external_id, title, dedupe_hash) "
+            "select id, 'example', '1', 'Dev', 'hash' from companies"
+        )
+        conn.execute(
+            "insert into applications (profile_id, job_id, score) "
+            "select p.id, j.id, 50 from profiles p, jobs j"
+        )
+        conn.commit()
+
+        result = apply_migrations(conn, MIGRATIONS)
+
+        assert result.applied == ["0011_outreach.sql", "0012_contacts_attempted.sql"]
+        assert conn.execute("select kind from applications").fetchone()["kind"] == "advert"
+        profile = conn.execute(
+            "select business_types, prospects_enabled, prospects_per_day from profiles"
+        ).fetchone()
+        assert profile["business_types"] == []
+        assert profile["prospects_enabled"] is False
+        assert profile["prospects_per_day"] == 5
+        conn.execute(
+            "insert into jobs (company_id, source, external_id, title, dedupe_hash) "
+            "select id, 'nearby', '2', 'Dev', 'hash2' from companies"
+        )
+        conn.execute(
+            "insert into outreach_blocks (profile_id, company_id, reason) "
+            "select p.id, c.id, 'replied' from profiles p, companies c"
+        )
+        with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
+            conn.execute("update applications set kind = 'cold'")
+        with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
+            conn.execute("update profiles set prospects_per_day = 11")
+        with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
+            conn.execute("update outreach_blocks set reason = 'annoyed'")
+
+
 def test_every_table_has_row_level_security(empty_database_url):
     # Supabase exposes public tables through its API unless RLS is on.
     with connect(empty_database_url) as conn:
@@ -147,7 +195,7 @@ def test_migration_0010_adds_the_added_flag_to_an_existing_database(empty_databa
 
         result = apply_migrations(conn, MIGRATIONS)
 
-        assert result.applied == ["0010_skill_decisions_added.sql"]
+        assert "0010_skill_decisions_added.sql" in result.applied
         column = conn.execute(
             "select is_nullable, column_default from information_schema.columns "
             "where table_name = 'skill_decisions' and column_name = 'added'"
@@ -156,3 +204,27 @@ def test_migration_0010_adds_the_added_flag_to_an_existing_database(empty_databa
         assert column["column_default"] == "false"
         row = conn.execute("select added from skill_decisions").fetchone()
         assert row["added"] is False
+
+
+def test_migration_0012_records_contact_attempts_on_an_existing_database(
+    empty_database_url, tmp_path
+):
+    before = tmp_path / "before"
+    before.mkdir()
+    for path in MIGRATIONS.glob("*.sql"):
+        if path.name < "0012":
+            shutil.copy(path, before / path.name)
+
+    with connect(empty_database_url) as conn:
+        apply_migrations(conn, before)
+        conn.execute("insert into companies (name) values ('Example Ltd')")
+        conn.commit()
+
+        result = apply_migrations(conn, MIGRATIONS)
+
+        assert "0012_contacts_attempted.sql" in result.applied
+        column = conn.execute(
+            "select data_type from information_schema.columns "
+            "where table_name = 'companies' and column_name = 'contacts_attempted_at'"
+        ).fetchone()
+        assert column["data_type"] == "timestamp with time zone"

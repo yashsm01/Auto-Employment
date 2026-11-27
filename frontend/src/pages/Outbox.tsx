@@ -16,6 +16,7 @@ import {
   type WaitingItem,
 } from "../api/outbox";
 import { sendAfterCall } from "../api/settings";
+import OutboxContacts from "../components/OutboxContacts";
 import { ErrorNotice, InfoNotice } from "../components/Notice";
 import { useOutbox, useOutboxAction } from "../hooks/useOutbox";
 
@@ -42,6 +43,15 @@ function JobHeading({ title, company, id }: { title: string; company: string; id
   );
 }
 
+function SpeculativeTag({ kind }: { kind: "advert" | "speculative" }) {
+  if (kind !== "speculative") return null;
+  return (
+    <span className="rounded-full bg-warn-soft px-2.5 py-0.5 text-xs font-semibold text-warn">
+      Speculative
+    </span>
+  );
+}
+
 function ReadyItem({ item }: { item: ToSendItem }) {
   const [to, setTo] = useState(item.suggested_to ?? "");
   const queue = useOutboxAction((address: string) => queueEmail(item.application_id, address));
@@ -51,7 +61,10 @@ function ReadyItem({ item }: { item: ToSendItem }) {
 
   return (
     <article aria-label={`${item.title} at ${item.company}`} className="card flex flex-col gap-3">
-      <JobHeading title={item.title} company={item.company} id={item.application_id} />
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <JobHeading title={item.title} company={item.company} id={item.application_id} />
+        <SpeculativeTag kind={item.application_kind} />
+      </div>
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex min-w-[240px] flex-1 flex-col gap-1.5">
           <label className="label" htmlFor={inputId}>
@@ -115,7 +128,10 @@ function EmailItem({ item, failed }: { item: OutboxItem; failed: boolean }) {
   const retry = useOutboxAction(() => retryEmail(item.id));
   return (
     <article aria-label={`${item.subject} to ${item.to}`} className="card flex flex-col gap-2">
-      <JobHeading title={item.title} company={item.company} id={item.application_id} />
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <JobHeading title={item.title} company={item.company} id={item.application_id} />
+        <SpeculativeTag kind={item.application_kind} />
+      </div>
       <span className="text-sm">
         {item.kind === "follow_up" ? "Follow-up" : "Application"} to <b>{item.to}</b> ·{" "}
         {item.subject}
@@ -151,7 +167,10 @@ function DraftItem({ item }: { item: OutboxItem }) {
   const busy = send.isPending || skip.isPending;
   return (
     <article aria-label={`${item.subject} to ${item.to}`} className="card flex flex-col gap-2">
-      <JobHeading title={item.title} company={item.company} id={item.application_id} />
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <JobHeading title={item.title} company={item.company} id={item.application_id} />
+        <SpeculativeTag kind={item.application_kind} />
+      </div>
       <span className="text-sm">
         Follow-up to <b>{item.to}</b> · {item.subject}
       </span>
@@ -182,11 +201,14 @@ function WaitingRow({ item }: { item: WaitingItem }) {
     <article aria-label={`${item.title} at ${item.company}`} className="card flex flex-col gap-2">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <JobHeading title={item.title} company={item.company} id={item.application_id} />
-        {item.follow_up_due && (
+        <div className="flex flex-wrap items-center gap-2">
+          <SpeculativeTag kind={item.application_kind} />
+          {item.follow_up_due && (
           <span className="rounded-full bg-warn-soft px-2.5 py-0.5 text-xs font-semibold text-warn">
             Follow-up due
           </span>
         )}
+        </div>
       </div>
       <span className="text-sm">
         {item.apply_method === "email"
@@ -343,6 +365,7 @@ export default function Outbox() {
           ))}
         </Section>
       )}
+      <OutboxContacts />
       {data.replied.length > 0 && (
         <Section title="Replied">
           <ul className="m-0 flex flex-col gap-1.5 pl-5 text-sm">

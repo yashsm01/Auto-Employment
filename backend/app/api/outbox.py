@@ -1,9 +1,10 @@
 from datetime import UTC, datetime
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends
 
-from app.core.deps import ConnDep, ProfileIdDep, SettingsDep
+from app.core.deps import ConnDep, ProfileIdDep, SettingsDep, get_contact_tools
 from app.schemas.outbox import (
     FollowUpSettings,
     OutboxSettings,
@@ -11,7 +12,9 @@ from app.schemas.outbox import (
     OutcomeRequest,
     SendRequest,
 )
-from app.services import outbox_service
+from app.schemas.outbox_contacts import ContactRow, OutboxContacts
+from app.services import outbox_contacts, outbox_service
+from app.services.contact_service import ContactTools
 from app.workers.outbox_job import process_outbox
 
 router = APIRouter(tags=["outbox"])
@@ -125,3 +128,22 @@ def retry_email(
     conn.commit()
     background.add_task(process_outbox, settings)
     return _view(conn, profile_id, settings)
+
+
+@router.get("/outbox/contacts")
+def get_outbox_contacts(conn: ConnDep, profile_id: ProfileIdDep) -> OutboxContacts:
+    return outbox_contacts.rows(conn, profile_id)
+
+
+@router.post("/applications/{application_id}/find-contacts")
+def find_contacts(
+    application_id: UUID,
+    conn: ConnDep,
+    profile_id: ProfileIdDep,
+    tools: Annotated[ContactTools, Depends(get_contact_tools)],
+) -> ContactRow:
+    row = outbox_contacts.find_contacts(
+        conn, profile_id, application_id, tools, datetime.now(UTC)
+    )
+    conn.commit()
+    return row

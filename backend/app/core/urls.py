@@ -16,3 +16,11 @@ def safe_url(url: str | None) -> str | None:
 def without_fragment(url: str) -> str:
     """The page itself: an anchor such as #contact names a place on the page, not another page."""
     return urlsplit(url)._replace(fragment="").geturl()
+
+
+_FILE_SUFFIXES = (".webp", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".pdf", ".doc", ".docx")
+
+
+def is_file_path(path: str) -> bool:
+    """True when the path names an image or document, never a page (such as a contact page)."""
+    return path.casefold().endswith(_FILE_SUFFIXES)

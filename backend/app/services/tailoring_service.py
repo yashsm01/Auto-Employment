@@ -140,6 +140,11 @@ def drop_declined_sentences(
     return cleaned, list(dict.fromkeys(notes))
 
 
+def unsupported_sentence(sentence: str, source: str) -> bool:
+    """True when a cover-note sentence adds a number or a skill the source does not have."""
+    return bool(_new_numbers(sentence, source) or _new_skills(sentence, source))
+
+
 def check_facts(
     base: BaseSections,
     source: str,

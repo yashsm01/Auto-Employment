@@ -52,8 +52,11 @@ def add_job_post_facts(conn: psycopg.Connection, company_id: UUID, job: JobDraft
 
 
 # Facts the contact lookup writes from the employer's own pages. They are not research.
+# no_unsolicited is a page statement that blocks outreach. It is never shown as a contact.
+# site_unreadable records a refused read: the employer is still unresearched.
 CONTACT_FIELDS = [
     "email", "hiring_email", "phone", "contact_page", "careers_page", "linkedin",
+    "no_unsolicited", "site_unreadable",
 ]
 
 
@@ -170,6 +173,31 @@ def delete_website_facts(conn: psycopg.Connection, company_id: UUID, fields: lis
     )
 
 
+UNREADABLE_FIELD = "site_unreadable"
+
+
+def set_unreadable(
+    conn: psycopg.Connection, company_id: UUID, note: str, source_url: str, fetched_at: datetime
+) -> None:
+    """The last lookup read no page of the employer's site. Not a contact: see list_facts."""
+    clear_unreadable(conn, company_id)
+    conn.execute(
+        """
+        insert into company_facts (company_id, field, value, source, confidence, source_url,
+                                   fetched_at)
+        values (%s, %s, %s, 'website', 'high', %s, %s)
+        """,
+        (company_id, UNREADABLE_FIELD, note, source_url, fetched_at),
+    )
+
+
+def clear_unreadable(conn: psycopg.Connection, company_id: UUID) -> None:
+    conn.execute(
+        "delete from company_facts where company_id = %s and field = %s and source = 'website'",
+        (company_id, UNREADABLE_FIELD),
+    )
+
+
 def upsert_website_fact(
     conn: psycopg.Connection,
     company_id: UUID,
@@ -199,7 +227,7 @@ def list_facts(conn: psycopg.Connection, company_id: UUID) -> list[dict[str, Any
         """
         select field, value, source, confidence, source_url
         from company_facts
-        where company_id = %s
+        where company_id = %s and field not in ('site_unreadable', 'no_unsolicited')
         order by field, fetched_at desc
         """,
         (company_id,),

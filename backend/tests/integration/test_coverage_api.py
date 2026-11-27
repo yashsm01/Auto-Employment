@@ -327,3 +327,44 @@ def test_blank_ai_sections_keep_profile_skills_counting(conn):
     after = coverage_service.for_application(conn, profile_id, application_id, chain)
     assert after.required[0].status == "shown"
     assert after.required_text == "2 of 2"
+
+
+def _setup_with_cv_text(conn, text, content_sections=None):
+    profile_id = profiles_repo.first_profile_id(conn)
+    content = {"text": text, "contact": {"name": "Sample Person"}}
+    if content_sections is not None:
+        content["sections"] = content_sections
+    profiles_repo.add_base_resume(
+        conn,
+        profile_id,
+        content,
+        "resume.pdf",
+        ResumeProfile(titles=["Data Engineer"], skills=[SkillEntry(name="Python")]),
+    )
+    conn.commit()
+    return profile_id
+
+
+def test_coverage_counts_skills_of_a_fresh_read_without_roles(conn):
+    profile_id = _setup_with_cv_text(conn, "Sample Person\nKubernetes and Python skills.")
+    chain = ResumeSectionsChain(ScriptedLLM(SectionsExtraction(skills=["Kubernetes"])))
+    application_id = _application(conn, profile_id, required=["Kubernetes"])
+
+    coverage = coverage_service.for_application(conn, profile_id, application_id, chain)
+
+    assert coverage.required[0].status == "shown"
+    assert coverage.required[0].evidence == "Shown in: Key skills"
+
+
+def test_coverage_counts_skills_of_a_cached_read_without_roles(conn):
+    profile_id = _setup_with_cv_text(
+        conn,
+        "Sample Person\nKubernetes and Python skills.",
+        {"summary": "", "roles": [], "skills": ["Kubernetes"], "education": []},
+    )
+    application_id = _application(conn, profile_id, required=["Kubernetes"])
+
+    coverage = coverage_service.for_application(conn, profile_id, application_id)
+
+    assert coverage.required[0].status == "shown"
+    assert coverage.required[0].evidence == "Shown in: Key skills"

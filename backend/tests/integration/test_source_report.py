@@ -201,8 +201,8 @@ def test_discovery_queries_cover_every_town_over_several_days():
 
     seen = {
         query
-        for offset in range(4)
-        for query in discovery_queries(resume, prefs, date(2026, 11, 24 + offset), 1)
+        for start in range(4)
+        for query in discovery_queries(resume, prefs, TODAY, 1, start=start)
     }
 
     assert seen == {"Python Developer company in Timaru", "Python Developer company in Oamaru"}
@@ -214,3 +214,21 @@ def test_discovery_queries_search_all_of_nz_when_no_town_is_chosen():
     assert discovery_queries(resume, make_prefs(regions=[]), TODAY, 3) == [
         "Python Developer company in New Zealand"
     ]
+
+
+def test_the_saved_cursor_carries_the_search_round_to_the_next_day(conn):
+    first, second = FakePlaces(), FakePlaces()
+    _discover(conn, first, per_run=1, daily=30, regions=("Timaru", "Oamaru"))
+    _discover(conn, second, per_run=1, daily=30, regions=("Timaru", "Oamaru"))
+
+    assert first.queries == ["Python Developer company in Timaru"]
+    assert second.queries == ["Data Engineer company in Timaru"]
+
+
+def test_a_failed_search_moves_the_cursor_past_it(conn):
+    _discover(conn, FakePlaces(ProviderError("places", "HTTP 403")), per_run=1)
+    retry = FakePlaces()
+
+    _discover(conn, retry, per_run=1)
+
+    assert retry.queries == ["Data Engineer company in Timaru"]

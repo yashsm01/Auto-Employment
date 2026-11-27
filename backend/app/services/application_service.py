@@ -49,6 +49,7 @@ _SOURCE_LABELS = {
     "ats": "Company site",
     "serpapi": "Google Jobs",
     "example": "Example",
+    "nearby": "Google Maps",
 }
 _BOARD_LABELS = {
     "site": "Employer website via Google Maps",
@@ -116,6 +117,11 @@ def decide(
             conn, event_type, application_id=application_id, company_id=row["company_id"]
         )
     return DecisionResponse(id=application_id, status=status)
+
+
+def company_of(conn: psycopg.Connection, application_id: UUID) -> UUID | None:
+    """The employer of the job this application is for, if the job has one."""
+    return applications_repo.company_of(conn, application_id)
 
 
 def format_salary(low: int | None, high: int | None) -> str:

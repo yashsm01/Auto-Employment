@@ -17,6 +17,7 @@ function view(overrides: Partial<OutboxView> = {}): OutboxView {
         application_id: "a1",
         title: "Data Engineer",
         company: "Example Freight Tech",
+        application_kind: "advert",
         suggested_to: "jobs@example.co.nz",
         job_url: "https://example.co.nz/jobs/1",
         pdf_url: "/resumes/r1/pdf",
@@ -41,6 +42,7 @@ describe("Outbox", () => {
   it("explains that sending is off and queues an email to the suggested address", async () => {
     const calls = mockApi({
       "GET /outbox": () => ({ body: view() }),
+      "GET /outbox/contacts": () => ({ body: { rows: [] } }),
       "POST /applications/a1/send": () => ({ body: view({ to_send: [] }) }),
     });
     renderPage(<Outbox />);
@@ -65,6 +67,7 @@ describe("Outbox", () => {
   it("records an application made on the job site", async () => {
     const calls = mockApi({
       "GET /outbox": () => ({ body: view() }),
+      "GET /outbox/contacts": () => ({ body: { rows: [] } }),
       "POST /applications/a1/applied": () => ({ body: view({ to_send: [] }) }),
     });
     renderPage(<Outbox />);
@@ -81,6 +84,7 @@ describe("Outbox", () => {
       title: "Data Engineer",
       company: "Example Freight Tech",
       kind: "application" as const,
+      application_kind: "advert" as const,
       to: "jobs@example.co.nz",
       subject: "Application for Data Engineer",
       scheduled_at: "2026-11-25T08:00:00Z",
@@ -94,6 +98,7 @@ describe("Outbox", () => {
     });
     const calls = mockApi({
       "GET /outbox": () => ({ body: current }),
+      "GET /outbox/contacts": () => ({ body: { rows: [] } }),
       "POST /outbox/o1/cancel": () => ({ body: current }),
       "POST /outbox/o2/retry": () => ({ body: current }),
     });
@@ -118,6 +123,7 @@ describe("Outbox", () => {
           title: "Analyst",
           company: "Example Health",
           apply_method: "manual",
+          application_kind: "advert",
           to: null,
           applied_at: "2026-11-17T08:00:00Z",
           follow_ups: 0,
@@ -129,6 +135,7 @@ describe("Outbox", () => {
     });
     const calls = mockApi({
       "GET /outbox": () => ({ body: current }),
+      "GET /outbox/contacts": () => ({ body: { rows: [] } }),
       "POST /applications/a2/outcome": () => ({ body: current }),
     });
     renderPage(<Outbox />);
@@ -157,6 +164,7 @@ describe("Outbox", () => {
           title: "Data Engineer",
           company: "Example Freight Tech",
           apply_method: "email",
+          application_kind: "advert",
           to: "jobs@example.co.nz",
           applied_at: "2026-11-03T08:00:00Z",
           follow_ups: 2,
@@ -170,6 +178,7 @@ describe("Outbox", () => {
     });
     const calls = mockApi({
       "GET /outbox": () => ({ body: current }),
+      "GET /outbox/contacts": () => ({ body: { rows: [] } }),
       "POST /applications/a3/send-after-call": () => ({ body: current }),
     });
     renderPage(<Outbox />);
@@ -190,6 +199,7 @@ describe("Outbox", () => {
   it("saves the daily limit", async () => {
     const calls = mockApi({
       "GET /outbox": () => ({ body: view() }),
+      "GET /outbox/contacts": () => ({ body: { rows: [] } }),
       "PUT /outbox/settings": () => ({ body: view({ daily_limit: 10 }) }),
     });
     renderPage(<Outbox />);
@@ -205,7 +215,10 @@ describe("Outbox", () => {
   });
 
   it("explains an empty outbox", async () => {
-    mockApi({ "GET /outbox": () => ({ body: view({ to_send: [], sending_enabled: true }) }) });
+    mockApi({
+      "GET /outbox": () => ({ body: view({ to_send: [], sending_enabled: true }) }),
+      "GET /outbox/contacts": () => ({ body: { rows: [] } }),
+    });
     renderPage(<Outbox />);
 
     expect(await screen.findByText(/Nothing to send yet/)).toBeInTheDocument();
@@ -219,6 +232,7 @@ describe("Outbox", () => {
       title: "Analyst",
       company: "Example Health",
       kind: "follow_up",
+      application_kind: "advert" as const,
       to: "hr@example.health",
       subject: "Following up on my application",
       scheduled_at: "2026-11-24T20:00:00Z",
@@ -228,6 +242,7 @@ describe("Outbox", () => {
     const current = view({ to_send: [], drafts: [draft] });
     const calls = mockApi({
       "GET /outbox": () => ({ body: { ...current, drafts: [draft] } }),
+      "GET /outbox/contacts": () => ({ body: { rows: [] } }),
       "POST /outbox/o1/send": () => ({ body: { ...current, drafts: [] } }),
       "POST /outbox/o1/cancel": () => ({ body: { ...current, drafts: [] } }),
     });
@@ -246,12 +261,13 @@ describe("Outbox", () => {
 
   it("skips a draft follow-up", async () => {
     const draft: OutboxItem = {
-      id: "o1", application_id: "a2", title: "Analyst", company: "Example Health", kind: "follow_up",
+      id: "o1", application_id: "a2", title: "Analyst", company: "Example Health", kind: "follow_up", application_kind: "advert",
       to: "hr@example.health", subject: "Following up", scheduled_at: "2026-11-24T20:00:00Z",
       attempts: 0, error: null,
     };
     const calls = mockApi({
       "GET /outbox": () => ({ body: view({ to_send: [], drafts: [draft] }) }),
+      "GET /outbox/contacts": () => ({ body: { rows: [] } }),
       "POST /outbox/o1/cancel": () => ({ body: view({ to_send: [], drafts: [] }) }),
     });
     const user = userEvent.setup();
@@ -260,5 +276,69 @@ describe("Outbox", () => {
     const section = await screen.findByRole("region", { name: "Follow-ups waiting for you" });
     await user.click(within(section).getByRole("button", { name: "Skip" }));
     await waitFor(() => expect(findCall(calls, "/outbox/o1/cancel")).toBeDefined());
+  });
+  it("speculative items are labelled", async () => {
+    const speculative = {
+      id: "o3",
+      application_id: "a3",
+      title: "Timber Yard Hand",
+      company: "Timaru Trades",
+      kind: "application" as const,
+      application_kind: "speculative" as const,
+      to: "hello@timarutrades.example",
+      subject: "Enquiry about opportunities at Timaru Trades",
+      scheduled_at: "2026-11-25T08:00:00Z",
+      attempts: 0,
+      error: null,
+    };
+    const advert = { ...speculative, id: "o4", application_id: "a4", title: "Driver",
+      company: "Example Freight Tech", application_kind: "advert" as const,
+      subject: "Application for Driver" };
+    mockApi({
+      "GET /outbox": () => ({ body: view({ to_send: [], queued: [speculative, advert] }) }),
+      "GET /outbox/contacts": () => ({ body: { rows: [] } }),
+    });
+    renderPage(<Outbox />);
+
+    const queued = await screen.findByRole("region", { name: "Queued" });
+    const speculativeItem = within(queued).getByRole("article", { name: /Enquiry about/ });
+    expect(within(speculativeItem).getByText("Speculative")).toBeInTheDocument();
+    const advertItem = within(queued).getByRole("article", { name: /Application for Driver/ });
+    expect(within(advertItem).queryByText("Speculative")).not.toBeInTheDocument();
+  });
+
+  it("shows why an advert that asks for applications on the site cannot be queued", async () => {
+    mockApi({
+      "GET /outbox": () => ({ body: view() }),
+      "GET /outbox/contacts": () => ({ body: { rows: [] } }),
+      "POST /applications/a1/send": () => ({
+        status: 400,
+        body: { detail: "This advert asks you to apply on the job site." },
+      }),
+    });
+    renderPage(<Outbox />);
+
+    const item = await screen.findByRole("article", { name: /Data Engineer/ });
+    await userEvent.click(within(item).getByRole("button", { name: "Queue email" }));
+
+    expect(
+      await screen.findByText("This advert asks you to apply on the job site."),
+    ).toBeInTheDocument();
+  });
+
+  it("labels a ready-to-apply enquiry as speculative", async () => {
+    mockApi({
+      "GET /outbox": () => ({
+        body: view({
+          to_send: [{ ...view().to_send[0], application_kind: "speculative" as const,
+            title: "Timber Yard Hand" }],
+        }),
+      }),
+      "GET /outbox/contacts": () => ({ body: { rows: [] } }),
+    });
+    renderPage(<Outbox />);
+
+    const item = await screen.findByRole("article", { name: /Timber Yard Hand/ });
+    expect(within(item).getByText("Speculative")).toBeInTheDocument();
   });
 });

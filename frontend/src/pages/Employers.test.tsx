@@ -311,4 +311,22 @@ describe("Employers", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("GOOGLE_MAPS_API_KEY");
   });
+
+  it("saved employers show outreach status", async () => {
+    withApi([
+      saved({ id: "c1", name: "Emailed Ltd", outreach_status: "emailed", outreach_at: "2026-11-25T22:00:00Z" }),
+      saved({ id: "c2", name: "Replied Ltd", outreach_status: "replied", outreach_at: "2026-11-20T03:00:00Z" }),
+      saved({ id: "c3", name: "Blocked Ltd", outreach_status: "blocked", outreach_at: null }),
+      saved({ id: "c4", name: "Quiet Ltd", outreach_status: null, outreach_at: null }),
+    ]);
+    renderPage(<Employers />);
+
+    const list = await screen.findByRole("region", { name: "Employers checked on each search" });
+    // 25 November 22:00 UTC is 26 November in New Zealand.
+    expect(await within(list).findByText("Emailed 26 Nov 2026")).toBeInTheDocument();
+    expect(within(list).getByText("Replied")).toBeInTheDocument();
+    expect(within(list).getByText("Do not contact")).toBeInTheDocument();
+    const quiet = within(list).getByText("Quiet Ltd").closest("div")!.parentElement!;
+    expect(within(quiet).queryByText(/Emailed|Replied|Do not contact/)).not.toBeInTheDocument();
+  });
 });

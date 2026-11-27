@@ -13,6 +13,7 @@ import {
   testWhatsApp,
   unlinkWhatsApp,
 } from "../api/settings";
+import ChipEditor from "../components/ChipEditor";
 import { ErrorNotice, InfoNotice, SuccessNotice } from "../components/Notice";
 
 const timeFormat = new Intl.DateTimeFormat("en-NZ", {
@@ -58,18 +59,49 @@ function CallRow({ call }: { call: CallItem }) {
   );
 }
 
+const MAX_BUSINESS_TYPES = 20;
+const MAX_BUSINESS_TYPE_LENGTH = 60;
+
 function AutoModeForm({ value }: { value: AutoModeView }) {
   const client = useQueryClient();
   const [enabled, setEnabled] = useState(value.enabled ?? false);
   const [minScore, setMinScore] = useState(String(value.min_score ?? 80));
   const [limit, setLimit] = useState(String(value.daily_limit ?? 5));
+  const [prospects, setProspects] = useState(value.prospects_enabled ?? false);
+  const [perDayText, setPerDayText] = useState(String(value.prospects_per_day ?? 5));
+  // Until something is saved, the chips start from the suggestions made from the resume.
+  const savedTypes = value.business_types ?? [];
+  const [businessTypes, setBusinessTypes] = useState<string[]>(
+    savedTypes.length > 0 ? savedTypes : (value.business_types_suggested ?? []),
+  );
+  const [typeProblem, setTypeProblem] = useState<string | null>(null);
   const save = useMutation({
     mutationFn: saveAutoMode,
     onSuccess: (saved) => client.setQueryData(["auto-mode"], saved),
   });
   const score = Number.parseInt(minScore, 10);
-  const perDay = Number.parseInt(limit, 10);
-  const valid = score >= 0 && score <= 100 && perDay >= 0 && perDay <= 20;
+  const dailyLimit = Number.parseInt(limit, 10);
+  const perDay = Number.parseInt(perDayText, 10);
+  const valid =
+    score >= 0 && score <= 100 && dailyLimit >= 0 && dailyLimit <= 20 && perDay >= 1 && perDay <= 10;
+
+  const addBusinessType = (text: string) => {
+    if (text.length > MAX_BUSINESS_TYPE_LENGTH) {
+      setTypeProblem(`Business types can be up to ${MAX_BUSINESS_TYPE_LENGTH} characters.`);
+      return;
+    }
+    const key = text.toLocaleLowerCase();
+    if (businessTypes.some((item) => item.toLocaleLowerCase() === key)) {
+      setTypeProblem(null);
+      return;
+    }
+    if (businessTypes.length >= MAX_BUSINESS_TYPES) {
+      setTypeProblem(`You can save up to ${MAX_BUSINESS_TYPES} business types.`);
+      return;
+    }
+    setTypeProblem(null);
+    setBusinessTypes([...businessTypes, text]);
+  };
 
   return (
     <Card title="Auto mode">
@@ -125,20 +157,84 @@ function AutoModeForm({ value }: { value: AutoModeView }) {
       <p className="m-0 text-sm">
         {value.approved_today} jobs approved by auto mode today
       </p>
+
+      <section
+        aria-label="Google Maps employers"
+        className="flex flex-col gap-3 border-t border-line pt-3"
+      >
+        <h3 className="m-0 font-display text-[15px] font-bold">Google Maps employers</h3>
+        <p className="m-0 text-sm">
+          Each day, auto mode can email employers it finds on Google Maps to ask whether they
+          would consider you. It emails at most the number of new employers set below each day,
+          with one follow-up. A reply or a bounced email stops further emails to that employer.
+        </p>
+        <div className="flex flex-col gap-1.5">
+          <label className="flex min-h-9 items-center gap-2 text-sm font-semibold">
+            <input
+              type="checkbox"
+              checked={enabled && prospects}
+              disabled={!enabled}
+              onChange={(event) => setProspects(event.target.checked)}
+            />
+            Email Google Maps employers automatically
+          </label>
+          {!enabled && <p className="m-0 text-[13px] text-muted">Turn on Auto mode first.</p>}
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="label" htmlFor="auto-prospects-per-day">
+            New employers a day
+          </label>
+          <input
+            id="auto-prospects-per-day"
+            className="input max-w-28"
+            type="number"
+            min={1}
+            max={10}
+            value={perDayText}
+            onChange={(event) => setPerDayText(event.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-2">
+          <span className="label">Business types</span>
+          {businessTypes.length > 0 && savedTypes.length === 0 && (
+            <p className="m-0 text-[13px] text-muted">
+              Suggested from your resume. Change them as you like, then save.
+            </p>
+          )}
+          <ChipEditor
+            items={businessTypes.map((text) => ({ key: text, label: text }))}
+            addLabel="Add a business type"
+            placeholder="For example, plumbing"
+            onAdd={addBusinessType}
+            onRemove={(key) => {
+              setTypeProblem(null);
+              setBusinessTypes(businessTypes.filter((text) => text !== key));
+            }}
+          />
+          {typeProblem && <p className="m-0 text-sm text-bad">{typeProblem}</p>}
+        </div>
+      </section>
+
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           className="btn self-start"
           disabled={!valid || save.isPending}
           onClick={() =>
-            save.mutate({ enabled, min_score: score, daily_limit: perDay })
+            save.mutate({
+              enabled,
+              min_score: score,
+              daily_limit: dailyLimit,
+              // Google Maps outreach needs Auto mode, so it is only sent on together with it.
+              prospects_enabled: enabled && prospects,
+              prospects_per_day: perDay,
+              business_types: businessTypes,
+            })
           }
         >
           Save auto mode
         </button>
-        {save.isSuccess && (
-          <span className="text-sm text-ok">Auto mode settings saved.</span>
-        )}
+        {save.isSuccess && <span className="text-sm text-ok">Auto mode settings saved.</span>}
       </div>
       {save.error && <ErrorNotice message={save.error.message} />}
     </Card>
